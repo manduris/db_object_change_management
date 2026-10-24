@@ -138,15 +138,59 @@
   #script { font-size: 12px; line-height: 1.35; padding: 6px; }
   input[type="checkbox"] { width: auto; padding: 0; }
   label.check { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
-  .tabs { display: flex; gap: 6px; margin-top: 8px; }
+  .log-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .tabs { display: flex; gap: 6px; }
   .tabs button.on { background: var(--accent); }
+  #clear-log { margin-left: auto; }
   #log, #grid-wrap { flex: 1; min-height: 140px; overflow: auto; background: var(--editor); border-radius: 8px; padding: 8px; }
-  #log { margin: 0; white-space: pre-wrap; font: 13px Consolas, monospace; }
-  #log .ok { color: var(--ok); }
-  #log .err { color: var(--err); }
-  #log .warn { color: var(--warn); }
-  #log .sql { color: var(--sql); }
-  #log .muted { color: var(--muted); }
+  #log {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: "Malgun Gothic", sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: normal;
+  }
+  .log-section {
+    margin-top: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #1e3a8a;
+    border: 1px solid #60a5fa;
+    color: #e0e7ff;
+    font-weight: 600;
+    width: fit-content;
+  }
+  .log-entry {
+    border-left: 3px solid var(--line);
+    padding: 5px 8px;
+    border-radius: 0 8px 8px 0;
+    background: rgba(148, 163, 184, 0.06);
+  }
+  .log-entry.ok { border-color: var(--ok); }
+  .log-entry.err { border-color: var(--err); background: rgba(248, 113, 113, 0.08); }
+  .log-entry.warn { border-color: var(--warn); }
+  .log-entry.info { border-color: #60a5fa; }
+  .log-entry.muted { border-color: var(--muted); }
+  .log-head { display: flex; gap: 8px; align-items: flex-start; }
+  .log-time { color: var(--muted); font-size: 11px; flex: none; padding-top: 1px; }
+  .log-text { white-space: pre-wrap; word-break: break-word; }
+  .log-text.ok { color: var(--ok); }
+  .log-text.err { color: var(--err); }
+  .log-text.warn { color: var(--warn); }
+  .log-text.muted { color: var(--muted); }
+  .log-sql {
+    margin: 6px 0 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #020617;
+    color: var(--sql);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font: 12px/1.4 Consolas, monospace;
+  }
   table { border-collapse: collapse; font: 12px Consolas, monospace; }
   th, td { border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; white-space: nowrap; }
   th { color: #cbd5e1; }
@@ -208,9 +252,12 @@
     <label class="check"><input id="stop-flag" type="checkbox" checked>각 DB에서 오류 시 중단</label>
   </div>
   <p class="hint">테이블·인덱스·데이터 변경은 세미콜론(;)으로 구분합니다. 프로시저, 함수, 패키지, 트리거, 익명 블록은 끝에 슬래시(/) 한 줄을 넣습니다.</p>
-  <div class="tabs">
-    <button type="button" class="on" data-tab="log">실행 로그</button>
-    <button type="button" data-tab="grid">조회 결과</button>
+  <div class="log-bar">
+    <div class="tabs">
+      <button type="button" class="on" data-tab="log">실행 로그</button>
+      <button type="button" data-tab="grid">조회 결과</button>
+    </div>
+    <button id="clear-log" type="button">지우기</button>
   </div>
   <pre id="log"></pre>
   <div id="grid-wrap" class="hidden"></div>
@@ -492,12 +539,45 @@ function formPayload() {
 function clearLog() { $("log").replaceChildren(); }
 
 function addLog(message, tag) {
-  const line = document.createElement("div");
-  line.className = tag || "info";
-  const stamp = tag === "sql" ? "" : "[" + new Date().toTimeString().slice(0, 8) + "] ";
-  line.textContent = stamp + message;
-  $("log").append(line);
-  $("log").scrollTop = $("log").scrollHeight;
+  const text = String(message || "");
+  const log = $("log");
+  if (text.startsWith("■ ")) {
+    const section = document.createElement("div");
+    section.className = "log-section";
+    section.textContent = text.slice(2).trim();
+    log.append(section);
+    log.scrollTop = log.scrollHeight;
+    return;
+  }
+  if (tag === "sql") {
+    const sql = document.createElement("pre");
+    sql.className = "log-sql";
+    sql.textContent = text.replace(/^\s+/, "");
+    const previous = log.lastElementChild;
+    if (previous && previous.classList.contains("log-entry")) previous.append(sql);
+    else {
+      const entry = document.createElement("div");
+      entry.className = "log-entry info";
+      entry.append(sql);
+      log.append(entry);
+    }
+    log.scrollTop = log.scrollHeight;
+    return;
+  }
+  const entry = document.createElement("div");
+  entry.className = "log-entry " + (tag || "info");
+  const head = document.createElement("div");
+  head.className = "log-head";
+  const time = document.createElement("span");
+  time.className = "log-time";
+  time.textContent = new Date().toTimeString().slice(0, 8);
+  const body = document.createElement("span");
+  body.className = "log-text " + (tag || "info");
+  body.textContent = text;
+  head.append(time, body);
+  entry.append(head);
+  log.append(entry);
+  log.scrollTop = log.scrollHeight;
 }
 
 function showTab(name) {
@@ -616,11 +696,9 @@ $("inspect").onclick = async () => {
     addLog("데이터베이스는 변경하지 않고 문장만 구분했습니다.", "muted");
     addLog(data.summary, "info");
     for (const item of data.statements) {
-      if (item.mode === "skip") addLog(`[${item.index}] 건너뜀 (${item.note}) ${item.preview}`, "warn");
-      else {
-        addLog(`[${item.index}] ${item.label}`, "ok");
-        addLog("    " + item.preview, "sql");
-      }
+      if (item.mode === "skip") addLog(`[${item.index}] 건너뜀 · ${item.note}`, "warn");
+      else addLog(`[${item.index}] ${item.label}`, "ok");
+      if (item.preview) addLog(item.preview, "sql");
     }
     if (data.risks.length) {
       addLog("주의가 필요한 문장:", "warn");
@@ -700,6 +778,10 @@ $("rollback").onclick = async () => {
 document.querySelectorAll(".tabs button").forEach((button) => {
   button.onclick = () => showTab(button.dataset.tab);
 });
+$("clear-log").onclick = () => {
+  clearLog();
+  setStatus("실행 로그를 지웠습니다.");
+};
 
 refresh().catch((error) => setStatus(error.message));
 setInterval(() => { refresh(false).catch(() => {}); }, 2000);

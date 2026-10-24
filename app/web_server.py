@@ -308,7 +308,7 @@ class WebApp:
             def report(*event) -> None:
                 kind = event[0]
                 if kind == "log":
-                    logs.append({"tag": event[1], "message": f"[{profile.name}] {event[2]}"})
+                    logs.append({"tag": event[1], "message": event[2]})
                 elif kind == "result":
                     results.append(
                         {
@@ -331,7 +331,7 @@ class WebApp:
                     report=report,
                 )
             except Exception as exc:
-                logs.append({"tag": "err", "message": f"[{profile.name}] {format_db_error(exc)}"})
+                logs.append({"tag": "err", "message": format_db_error(exc)})
                 stats["fail"] = int(stats.get("fail") or 0) + 1
             buckets[index] = {
                 "id": profile.id,

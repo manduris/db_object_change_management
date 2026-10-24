@@ -247,11 +247,8 @@ def run_script(
             report("progress", index, total)
             if statement.mode == "skip":
                 stats["skip"] += 1
-                report(
-                    "log",
-                    "warn",
-                    f"[{index}/{total}] 건너뜀 ({statement.note}) {statement.sql}",
-                )
+                report("log", "warn", f"[{index}/{total}] 건너뜀 ({statement.note})")
+                report("log", "sql", preview_sql(statement.sql, 360))
                 continue
             label = statement_label(statement.sql, statement.mode)
             started_stmt = time.perf_counter()
@@ -273,7 +270,7 @@ def run_script(
                             "ok",
                             f"[{index}/{total}] {label} 성공{detail}, {elapsed}",
                         )
-                    report("log", "sql", "    " + preview_sql(statement.sql))
+                    report("log", "sql", preview_sql(statement.sql, 360))
                     for output in read_dbms_output(cursor):
                         report("log", "info", "DBMS_OUTPUT | " + output)
                 stats["ok"] += 1
@@ -282,12 +279,12 @@ def run_script(
                 if cancel_event.is_set():
                     stats["cancelled"] = True
                     report("log", "warn", f"[{index}/{total}] 실행 중인 문장을 중지했습니다. {elapsed}")
-                    report("log", "sql", "    " + preview_sql(statement.sql))
+                    report("log", "sql", preview_sql(statement.sql, 360))
                     _safe_rollback(session, report)
                     break
                 stats["fail"] += 1
                 report("log", "err", f"[{index}/{total}] {label} 실패, {elapsed}")
-                report("log", "sql", "    " + preview_sql(statement.sql))
+                report("log", "sql", preview_sql(statement.sql, 360))
                 report("log", "err", format_db_error(exc))
                 if stop_on_error:
                     _safe_rollback(session, report)

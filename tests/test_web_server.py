@@ -52,6 +52,7 @@ class WebServerTests(unittest.TestCase):
         self.assertIn("오라클 오브젝트 변경 관리", page)
         self.assertIn("동시에 반영", page)
         self.assertIn("스크립트 저장", page)
+        self.assertIn("지우기", page)
         status, sample = self.request("/api/sample")
         self.assertEqual(status, 200)
         self.assertIn("CREATE TABLE", sample["script"])
