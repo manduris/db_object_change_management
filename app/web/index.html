@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>오라클 오브젝트 변경 관리</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f172a;
+    --panel: #111827;
+    --card: #1e293b;
+    --card-on: #172554;
+    --line: #334155;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --accent: #2563eb;
+    --ok: #4ade80;
+    --err: #f87171;
+    --warn: #fbbf24;
+    --sql: #93c5fd;
+    --editor: #020617;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    grid-template-rows: 1fr 32px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Malgun Gothic", sans-serif;
+  }
+  aside, main { min-height: 0; }
+  aside {
+    margin: 12px 0 8px 12px;
+    padding: 10px;
+    background: var(--panel);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  main {
+    margin: 12px 12px 8px 10px;
+    padding: 12px 14px;
+    background: var(--panel);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  h1 { margin: 0; font-size: 18px; }
+  .hint, .status-line, #status { color: var(--muted); font-size: 12px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  button, .file-btn {
+    border: 0;
+    border-radius: 6px;
+    background: #334155;
+    color: var(--text);
+    font-family: "Malgun Gothic", sans-serif;
+    font-size: 12px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); }
+  button.danger { background: #b91c1c; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  #cards { overflow: auto; display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; }
+  .store-box {
+    flex: none;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: #0b1220;
+  }
+  .store-box b { font-size: 12px; }
+  .store-box .card { cursor: default; }
+  .card {
+    text-align: left;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .card.selected { background: var(--card-on); border-color: var(--accent); }
+  .card-main { display: flex; gap: 6px; align-items: flex-start; }
+  .card b { display: block; font-size: 12px; font-weight: 600; }
+  .card small { display: block; color: var(--muted); font-size: 11px; line-height: 1.35; }
+  .card small.error {
+    color: var(--err);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .card .row { margin-top: 2px; }
+  .card button { padding: 1px 6px; font-size: 11px; }
+  .dot.connected { color: var(--ok); }
+  .dot.connecting { color: var(--warn); }
+  .dot.failed { color: var(--err); }
+  .dot.disconnected { color: var(--muted); }
+  #active-detail { margin: 4px 0 8px; min-height: 24px; }
+  #active-detail.badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 2px 8px 2px 7px;
+    border-radius: 999px;
+    background: #1e3a8a;
+    border: 1px solid #60a5fa;
+    color: #e0e7ff;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok);
+    flex: none;
+  }
+  textarea, input, select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--editor);
+    color: var(--text);
+    font: 13px Consolas, monospace;
+    padding: 8px;
+  }
+  textarea { flex: 1; min-height: 180px; resize: none; }
+  #script { font-size: 12px; line-height: 1.35; padding: 6px; }
+  input[type="checkbox"] { width: auto; padding: 0; }
+  label.check { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .tabs { display: flex; gap: 6px; margin-top: 8px; }
+  .tabs button.on { background: var(--accent); }
+  #log, #grid-wrap { flex: 1; min-height: 140px; overflow: auto; background: var(--editor); border-radius: 8px; padding: 8px; }
+  #log { margin: 0; white-space: pre-wrap; font: 13px Consolas, monospace; }
+  #log .ok { color: var(--ok); }
+  #log .err { color: var(--err); }
+  #log .warn { color: var(--warn); }
+  #log .sql { color: var(--sql); }
+  #log .muted { color: var(--muted); }
+  table { border-collapse: collapse; font: 12px Consolas, monospace; }
+  th, td { border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; white-space: nowrap; }
+  th { color: #cbd5e1; }
+  #status { grid-column: 1 / -1; background: #020617; display: flex; align-items: center; padding: 0 14px; }
+  dialog {
+    width: min(560px, calc(100vw - 32px));
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 16px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  dialog h2 { margin: 0 0 10px; font-size: 16px; }
+  .field { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .field span { color: var(--muted); font-size: 13px; }
+  #form-message { min-height: 18px; font-size: 12px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>DB 연결</h1>
+  <p class="hint">저장된 연결은 열 때마다 자동으로 접속합니다. 연결된 항목을 체크하면 그 데이터베이스에만 스크립트가 동시에 반영됩니다.</p>
+  <div class="row">
+    <button class="primary" id="add-connection" type="button">연결 추가</button>
+    <button id="reconnect-all" type="button">모두 연결</button>
+  </div>
+  <section class="store-box" id="script-store">
+    <div class="row">
+      <b>스크립트 저장</b>
+      <button id="edit-script-store" type="button">추가</button>
+    </div>
+    <p class="hint">실행 스크립트를 보관할 데이터베이스입니다. 저장 테이블은 나중에 지정합니다.</p>
+    <div id="script-store-card"></div>
+  </section>
+  <div id="cards"></div>
+</aside>
+<main>
+  <div class="row">
+    <h1 id="active-name">선택된 연결 없음</h1>
+    <button id="reconnect-one" type="button">선택 다시 연결</button>
+  </div>
+  <div id="active-detail" class="hint">연결된 데이터베이스를 체크하세요. 체크한 대상만 동시에 반영됩니다.</div>
+  <div class="row">
+    <button id="open-file" type="button">열기</button>
+    <button id="save-file" type="button">저장</button>
+    <button id="sample" type="button">예제</button>
+    <button id="inspect" type="button">검사</button>
+    <button class="primary" id="execute" type="button">실행</button>
+    <button class="danger" id="cancel" type="button" disabled>중지</button>
+    <button id="commit" type="button">커밋</button>
+    <button id="rollback" type="button">롤백</button>
+    <input id="file" type="file" accept=".sql,text/plain" class="hidden">
+  </div>
+  <textarea id="script" spellcheck="false" placeholder="변경 스크립트를 입력하세요."></textarea>
+  <div class="row">
+    <label class="check"><input id="commit-flag" type="checkbox" checked>성공 시 커밋</label>
+    <label class="check"><input id="stop-flag" type="checkbox" checked>각 DB에서 오류 시 중단</label>
+  </div>
+  <p class="hint">테이블·인덱스·데이터 변경은 세미콜론(;)으로 구분합니다. 프로시저, 함수, 패키지, 트리거, 익명 블록은 끝에 슬래시(/) 한 줄을 넣습니다.</p>
+  <div class="tabs">
+    <button type="button" class="on" data-tab="log">실행 로그</button>
+    <button type="button" data-tab="grid">조회 결과</button>
+  </div>
+  <pre id="log"></pre>
+  <div id="grid-wrap" class="hidden"></div>
+</main>
+<div id="status">준비</div>
+
+<dialog id="dialog">
+  <form id="form" method="dialog">
+    <h2 id="dialog-title">연결 추가</h2>
+    <input id="edit-id" type="hidden">
+    <label class="field"><span>연결 이름</span><input id="name" required></label>
+    <label class="field"><span>호스트</span><input id="host" placeholder="예: 10.0.0.10"></label>
+    <label class="field"><span>포트</span><input id="port" value="1521"></label>
+    <label class="field"><span>구분</span>
+      <select id="identifier-type">
+        <option value="service_name">서비스명</option>
+        <option value="sid">SID</option>
+      </select>
+    </label>
+    <label class="field"><span>서비스명 / SID</span><input id="identifier" placeholder="예: ORCL"></label>
+    <label class="field"><span>사용자</span><input id="username"></label>
+    <label class="field"><span>비밀번호</span><input id="password" type="password"></label>
+    <label class="field"><span>현재 스키마</span><input id="schema" placeholder="선택 사항"></label>
+    <label class="field"><span>직접 입력 DSN</span><input id="dsn" placeholder="선택 사항. 입력하면 호스트 대신 사용"></label>
+    <p id="form-message"></p>
+    <div class="row">
+      <button class="primary" id="save-connection" type="button">저장</button>
+      <button id="test-connection" type="button">연결 테스트</button>
+      <button id="close-dialog" type="button">닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const statusNames = { connected: "연결됨", connecting: "연결 중", failed: "실패", disconnected: "끊김" };
+let state = { connections: [], script_store: null, active_id: null, selected_ids: [], running: false };
+let results = [];
+let dialogMode = "target";
+
+function setStatus(text) { $("status").textContent = text; }
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+    body: options.body ? JSON.stringify(options.body) : options.body,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 409) {
+    throw new Error(data.error || "요청에 실패했습니다.");
+  }
+  data._status = response.status;
+  return data;
+}
+
+function render() {
+  renderScriptStore();
+  const cards = $("cards");
+  cards.replaceChildren();
+  if (!state.connections.length) {
+    cards.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "저장된 연결이 없습니다. 연결 추가를 누르세요.",
+    }));
+  }
+  for (const item of state.connections) {
+    const card = document.createElement("div");
+    card.className = "card" + (item.selected ? " selected" : "");
+    const main = document.createElement("div");
+    main.className = "card-main";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = !!item.selected;
+    box.disabled = item.status !== "connected";
+    box.title = item.status === "connected" ? "이 데이터베이스에 반영" : "연결된 뒤에 선택할 수 있습니다.";
+    box.onclick = (event) => event.stopPropagation();
+    box.onchange = () => toggleSelection(item, box.checked);
+    const body = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = item.name;
+    const line = document.createElement("small");
+    line.textContent = item.target;
+    const stateLine = document.createElement("small");
+    stateLine.className = "dot " + item.status;
+    stateLine.textContent = "● " + statusNames[item.status];
+    body.append(title, line, stateLine);
+    if (item.message) {
+      const message = document.createElement("small");
+      message.className = "error";
+      message.title = item.message;
+      message.textContent = item.message;
+      body.append(message);
+    }
+    main.append(box, body);
+    const actions = document.createElement("div");
+    actions.className = "row";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "수정";
+    edit.onclick = (event) => { event.stopPropagation(); openDialog(item); };
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "삭제";
+    remove.onclick = async (event) => {
+      event.stopPropagation();
+      if (!confirm("'" + item.name + "' 연결을 삭제할까요?\n다음 실행부터 자동으로 접속하지 않습니다.")) return;
+      try {
+        await api("/api/connections/" + encodeURIComponent(item.id), { method: "DELETE" });
+        await refresh();
+      } catch (error) {
+        alert(error.message);
+      }
+    };
+    actions.append(edit, remove);
+    card.append(main, actions);
+    card.onclick = () => {
+      if (item.status !== "connected") return;
+      toggleSelection(item, !item.selected);
+    };
+    cards.append(card);
+  }
+  const selected = state.connections.filter((item) => item.selected);
+  const detail = $("active-detail");
+  $("active-name").textContent = selected.length ? "선택 " + selected.length + "개" : "선택된 연결 없음";
+  detail.replaceChildren();
+  if (!selected.length) {
+    detail.className = "hint";
+    detail.textContent = "연결된 데이터베이스를 체크하세요. 체크한 대상만 동시에 반영됩니다.";
+  } else {
+    detail.className = "badges";
+    for (const item of selected) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.title = item.info || item.target || item.name;
+      const mark = document.createElement("span");
+      mark.className = "badge-dot";
+      const name = document.createElement("span");
+      name.textContent = item.name;
+      badge.append(mark, name);
+      detail.append(badge);
+    }
+  }
+  $("execute").disabled = state.running;
+  $("cancel").disabled = !state.running;
+  $("commit").disabled = state.running;
+  $("rollback").disabled = state.running;
+}
+
+function renderScriptStore() {
+  const host = $("script-store-card");
+  const item = state.script_store;
+  $("edit-script-store").textContent = item ? "수정" : "추가";
+  host.replaceChildren();
+  if (!item) {
+    host.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "저장할 데이터베이스가 없습니다.",
+    }));
+    return;
+  }
+  const card = document.createElement("div");
+  card.className = "card";
+  const title = document.createElement("b");
+  title.textContent = item.name;
+  const line = document.createElement("small");
+  line.textContent = item.target;
+  const stateLine = document.createElement("small");
+  stateLine.className = "dot " + item.status;
+  stateLine.textContent = "● " + statusNames[item.status];
+  card.append(title, line, stateLine);
+  if (item.message) {
+    const message = document.createElement("small");
+    message.className = "error";
+    message.title = item.message;
+    message.textContent = item.message;
+    card.append(message);
+  }
+  const actions = document.createElement("div");
+  actions.className = "row";
+  const reconnect = document.createElement("button");
+  reconnect.type = "button";
+  reconnect.textContent = "다시 연결";
+  reconnect.onclick = async () => {
+    try {
+      await api("/api/reconnect", { method: "POST", body: { id: item.id } });
+      await refresh(false);
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "삭제";
+  remove.onclick = async () => {
+    if (!confirm("스크립트 저장 데이터베이스 연결을 삭제할까요?\n실행 스크립트는 이 데이터베이스에 보관하지 않습니다.")) return;
+    try {
+      await api("/api/script-store", { method: "DELETE" });
+      await refresh();
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+  actions.append(reconnect, remove);
+  card.append(actions);
+  host.append(card);
+}
+
+function chosenIds() {
+  return state.connections.filter((item) => item.selected).map((item) => item.id);
+}
+
+async function toggleSelection(item, checked) {
+  const ids = new Set(chosenIds());
+  if (checked) ids.add(item.id);
+  else ids.delete(item.id);
+  try {
+    await api("/api/connections/select", { method: "POST", body: { ids: [...ids] } });
+    await refresh(false);
+  } catch (error) {
+    alert(error.message);
+    await refresh(false);
+  }
+}
+
+async function refresh(updateStatus = true) {
+  state = await api("/api/state");
+  render();
+  if (updateStatus && !state.running) {
+    const ok = state.connections.filter((item) => item.status === "connected").length;
+    const fail = state.connections.filter((item) => item.status === "failed").length;
+    const pending = state.connections.filter((item) => item.status === "connecting").length;
+    if (!state.connections.length) setStatus("저장된 연결이 없습니다. 연결 추가를 누르세요.");
+    else setStatus(`연결됨 ${ok} · 실패 ${fail} · 연결 중 ${pending}`);
+  }
+  if (state.warning) setStatus(state.warning);
+}
+
+function openDialog(item, mode = "target") {
+  dialogMode = mode;
+  if (mode === "script") {
+    $("dialog-title").textContent = item ? "스크립트 저장 DB 수정" : "스크립트 저장 DB 추가";
+  } else {
+    $("dialog-title").textContent = item ? "연결 수정" : "연결 추가";
+  }
+  $("edit-id").value = item ? item.id : "";
+  $("name").value = item ? item.name : (mode === "script" ? "스크립트 저장" : "");
+  $("host").value = item ? item.host : "";
+  $("port").value = item ? item.port : 1521;
+  $("identifier-type").value = item ? item.identifier_type : "service_name";
+  $("identifier").value = item ? item.identifier : "";
+  $("username").value = item ? item.username : "";
+  $("password").value = "";
+  $("password").placeholder = item ? "비워 두면 저장된 비밀번호를 사용합니다." : "비밀번호";
+  $("schema").value = item ? item.current_schema : "";
+  $("dsn").value = item ? item.dsn : "";
+  $("form-message").textContent = mode === "script"
+    ? "실행 스크립트를 보관할 연결입니다. 저장 테이블은 아직 지정하지 않습니다."
+    : "";
+  $("form-message").style.color = "var(--muted)";
+  $("dialog").showModal();
+}
+
+function formPayload() {
+  return {
+    id: $("edit-id").value,
+    name: $("name").value,
+    host: $("host").value,
+    port: $("port").value,
+    identifier_type: $("identifier-type").value,
+    identifier: $("identifier").value,
+    username: $("username").value,
+    password: $("password").value,
+    current_schema: $("schema").value,
+    dsn: $("dsn").value,
+  };
+}
+
+function clearLog() { $("log").replaceChildren(); }
+
+function addLog(message, tag) {
+  const line = document.createElement("div");
+  line.className = tag || "info";
+  const stamp = tag === "sql" ? "" : "[" + new Date().toTimeString().slice(0, 8) + "] ";
+  line.textContent = stamp + message;
+  $("log").append(line);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach((button) => {
+    button.classList.toggle("on", button.dataset.tab === name);
+  });
+  $("log").classList.toggle("hidden", name !== "log");
+  $("grid-wrap").classList.toggle("hidden", name !== "grid");
+}
+
+function showResults(list) {
+  results = list || [];
+  const wrap = $("grid-wrap");
+  wrap.replaceChildren();
+  for (const current of results) {
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = current.title + " · " + current.rows.length + "행" + (current.truncated ? " (최대 1000행)" : "");
+    const table = document.createElement("table");
+    const head = document.createElement("tr");
+    const number = document.createElement("th");
+    number.textContent = "#";
+    head.append(number);
+    for (const column of current.columns) {
+      const cell = document.createElement("th");
+      cell.textContent = column;
+      head.append(cell);
+    }
+    table.append(head);
+    current.rows.forEach((row, index) => {
+      const tr = document.createElement("tr");
+      const num = document.createElement("td");
+      num.textContent = String(index + 1);
+      tr.append(num);
+      for (const value of row) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.append(td);
+      }
+      table.append(tr);
+    });
+    wrap.append(note, table);
+  }
+  if (results.length) showTab("grid");
+}
+
+$("add-connection").onclick = () => openDialog(null, "target");
+$("edit-script-store").onclick = () => openDialog(state.script_store, "script");
+$("close-dialog").onclick = () => $("dialog").close();
+$("reconnect-all").onclick = async () => {
+  await api("/api/reconnect", { method: "POST", body: {} });
+  setStatus("저장된 연결에 접속하는 중...");
+  await refresh();
+};
+$("reconnect-one").onclick = async () => {
+  const ids = state.selected_ids || [];
+  if (!ids.length) return alert("다시 연결할 데이터베이스를 선택하세요.");
+  await api("/api/reconnect", { method: "POST", body: { ids } });
+  await refresh();
+};
+$("save-connection").onclick = async () => {
+  const scriptStore = dialogMode === "script";
+  try {
+    await api(scriptStore ? "/api/script-store" : "/api/connections", { method: "POST", body: formPayload() });
+    $("dialog").close();
+    await refresh();
+    setStatus(scriptStore
+      ? "스크립트 저장 데이터베이스를 저장했습니다. 테이블이 정해지면 실행 스크립트를 이 연결에 보관합니다."
+      : "저장했습니다. 프로그램을 열 때마다 이 연결로 자동 접속합니다.");
+  } catch (error) {
+    $("form-message").textContent = error.message;
+    $("form-message").style.color = "var(--err)";
+  }
+};
+$("test-connection").onclick = async () => {
+  $("form-message").textContent = "연결 테스트 중...";
+  $("form-message").style.color = "var(--warn)";
+  try {
+    const data = await api("/api/connections/test", { method: "POST", body: formPayload() });
+    $("form-message").textContent = data.message;
+    $("form-message").style.color = "var(--ok)";
+  } catch (error) {
+    $("form-message").textContent = error.message;
+    $("form-message").style.color = "var(--err)";
+  }
+};
+$("sample").onclick = async () => {
+  if ($("script").value.trim() && !confirm("편집 중인 스크립트를 예제로 바꿀까요?")) return;
+  const data = await api("/api/sample");
+  $("script").value = data.script;
+};
+$("open-file").onclick = () => $("file").click();
+$("file").onchange = async () => {
+  const file = $("file").files[0];
+  if (!file) return;
+  $("script").value = await file.text();
+  $("file").value = "";
+};
+$("save-file").onclick = () => {
+  const blob = new Blob([$("script").value], { type: "text/plain;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "change.sql";
+  link.click();
+  URL.revokeObjectURL(link.href);
+};
+$("inspect").onclick = async () => {
+  clearLog();
+  showTab("log");
+  try {
+    const data = await api("/api/script/inspect", { method: "POST", body: { script: $("script").value } });
+    if (data.empty && !data.statements.length) {
+      addLog("실행할 문장이 없습니다.", "warn");
+      return;
+    }
+    addLog("데이터베이스는 변경하지 않고 문장만 구분했습니다.", "muted");
+    addLog(data.summary, "info");
+    for (const item of data.statements) {
+      if (item.mode === "skip") addLog(`[${item.index}] 건너뜀 (${item.note}) ${item.preview}`, "warn");
+      else {
+        addLog(`[${item.index}] ${item.label}`, "ok");
+        addLog("    " + item.preview, "sql");
+      }
+    }
+    if (data.risks.length) {
+      addLog("주의가 필요한 문장:", "warn");
+      for (const risk of data.risks) addLog(risk, "warn");
+    }
+  } catch (error) {
+    addLog(error.message, "err");
+  }
+};
+async function runScript(confirmRisks) {
+  return api("/api/script/execute", {
+    method: "POST",
+    body: {
+      connection_ids: chosenIds(),
+      script: $("script").value,
+      commit: $("commit-flag").checked,
+      stop_on_error: $("stop-flag").checked,
+      confirm_risks: confirmRisks,
+    },
+  });
+}
+$("execute").onclick = async () => {
+  clearLog();
+  results = [];
+  showTab("log");
+  setStatus("실행 중...");
+  state.running = true;
+  render();
+  try {
+    let data = await runScript(false);
+    if (data.need_confirm) {
+      const preview = data.risks.slice(0, 10).join("\n");
+      const extra = data.risks.length > 10 ? `\n... 외 ${data.risks.length - 10}건` : "";
+      if (!confirm("삭제이거나 조건 없는 변경이 있습니다.\n실행할까요?\n\n" + preview + extra)) {
+        addLog("실행을 취소했습니다.", "warn");
+        return;
+      }
+      data = await runScript(true);
+    }
+    addLog(data.summary, "info");
+    for (const line of data.logs) addLog(line.message, line.tag);
+    if (data.results && data.results.length) showResults(data.results);
+    const stats = data.stats || {};
+    const targets = stats.targets ? `, ${stats.targets}개 DB` : "";
+    if (stats.cancelled) setStatus(`중지되었습니다. 성공 ${stats.ok || 0}건${targets}.`);
+    else if (stats.fail) setStatus(`실패가 있습니다. 성공 ${stats.ok || 0}건, 실패 ${stats.fail}건${targets}.`);
+    else setStatus(`완료되었습니다. 성공 ${stats.ok || 0}건, 건너뜀 ${stats.skip || 0}건${targets}.`);
+  } catch (error) {
+    addLog(error.message, "err");
+    setStatus(error.message);
+  } finally {
+    await refresh(false);
+  }
+};
+$("cancel").onclick = async () => {
+  await api("/api/script/cancel", { method: "POST", body: {} });
+  setStatus("중지 요청됨...");
+};
+$("commit").onclick = async () => {
+  if (!chosenIds().length) return alert("커밋할 데이터베이스를 선택하세요.");
+  if (!confirm("선택한 연결의 데이터 변경을 확정할까요?\nDDL은 이미 반영되어 있고, 데이터 변경만 확정됩니다.")) return;
+  try {
+    const data = await api("/api/script/commit", { method: "POST", body: { connection_ids: chosenIds() } });
+    addLog(data.message, "ok");
+    setStatus(data.message);
+  } catch (error) { alert(error.message); }
+};
+$("rollback").onclick = async () => {
+  if (!chosenIds().length) return alert("롤백할 데이터베이스를 선택하세요.");
+  if (!confirm("선택한 연결에서 아직 커밋하지 않은 데이터 변경을 취소할까요?")) return;
+  try {
+    const data = await api("/api/script/rollback", { method: "POST", body: { connection_ids: chosenIds() } });
+    addLog(data.message, "warn");
+    setStatus(data.message);
+  } catch (error) { alert(error.message); }
+};
+document.querySelectorAll(".tabs button").forEach((button) => {
+  button.onclick = () => showTab(button.dataset.tab);
+});
+
+refresh().catch((error) => setStatus(error.message));
+setInterval(() => { refresh(false).catch(() => {}); }, 2000);
+</script>
+</body>
+</html>

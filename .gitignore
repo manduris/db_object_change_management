@@ -1,0 +1,7 @@
+.venv/
+.tmp-web/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.tmp
+connections.broken*.json
