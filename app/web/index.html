@@ -107,9 +107,9 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    border: 1px solid var(--group-border, var(--line));
-    background: var(--group-bg, #0b1220);
-    color: var(--group-fg, var(--text));
+    border: 1px solid var(--line);
+    background: #0b1220;
+    color: var(--text);
     border-radius: 999px;
     padding: 3px 8px 3px 10px;
     font-size: 12px;
@@ -121,14 +121,6 @@
   .site-group-chip.drag-over { box-shadow: inset 3px 0 0 var(--accent); }
   .site-group-chip.drag-after { box-shadow: inset -3px 0 0 var(--accent); }
   .site-group-chip button { padding: 1px 7px; cursor: pointer; }
-  .site-group-swatch {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--group-border, var(--line));
-    flex: 0 0 auto;
-  }
   .site-group-add {
     display: flex;
     gap: 6px;
@@ -143,13 +135,12 @@
     gap: 8px;
     padding: 10px 12px 12px;
     border-radius: 12px;
-    border: 1px solid color-mix(in srgb, var(--group-border, var(--line)) 45%, transparent);
-    background: var(--group-bg, transparent);
+    border: 1px solid var(--line);
+    background: var(--panel);
   }
   .site-group-block h2 {
     margin: 0;
     font-size: 14px;
-    color: var(--group-fg, var(--text));
     display: flex;
     align-items: center;
     gap: 8px;
@@ -177,12 +168,10 @@
     min-width: 0;
     padding: 5px 10px;
     border-radius: 8px;
-    border-color: color-mix(in srgb, var(--group-border, var(--line)) 70%, var(--line));
-    background: color-mix(in srgb, var(--group-bg, var(--card)) 55%, var(--card));
   }
   a.site-card:hover {
-    border-color: var(--group-border, var(--accent));
-    background: color-mix(in srgb, var(--group-bg, var(--card-on)) 70%, var(--card-on));
+    border-color: var(--accent);
+    background: var(--card-on);
   }
   .site-card-head {
     display: flex;
@@ -197,16 +186,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     margin: 0;
-  }
-  #site-group-filters .gap-filter.group-tone {
-    border-color: var(--group-border);
-    color: var(--group-fg);
-    background: var(--group-bg);
-  }
-  #site-group-filters .gap-filter.group-tone.on {
-    background: var(--group-border);
-    border-color: var(--group-border);
-    color: #0b1220;
   }
   a.site-card b { font-size: 13px; }
   a.site-card:active { cursor: grabbing; }
@@ -2518,42 +2497,6 @@ function siteGroups() {
   return state.site_groups || [];
 }
 
-const SITE_GROUP_TONES = [
-  ["#93c5fd", "#3b82f6", "rgba(37, 99, 235, 0.20)"],
-  ["#fcd34d", "#d97706", "rgba(217, 119, 6, 0.18)"],
-  ["#86efac", "#16a34a", "rgba(22, 163, 74, 0.16)"],
-  ["#5eead4", "#0d9488", "rgba(13, 148, 136, 0.16)"],
-  ["#c4b5fd", "#7c3aed", "rgba(124, 58, 237, 0.18)"],
-  ["#fdba74", "#ea580c", "rgba(234, 88, 12, 0.16)"],
-  ["#f9a8d4", "#db2777", "rgba(219, 39, 119, 0.16)"],
-  ["#67e8f9", "#0891b2", "rgba(8, 145, 178, 0.16)"],
-];
-const UNGROUPED_TONE = ["#94a3b8", "#64748b", "rgba(100, 116, 139, 0.14)"];
-const SITE_GROUP_TONE_BY_NAME = { "개발": 0, "테스트": 1, "운영": 2 };
-
-function hashText(value) {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
-  return Math.abs(hash);
-}
-
-function siteGroupTone(group) {
-  if (!group || !group.id) return UNGROUPED_TONE;
-  const named = SITE_GROUP_TONE_BY_NAME[group.name];
-  const extra = SITE_GROUP_TONES.length - 3;
-  const index = Number.isInteger(named)
-    ? named
-    : extra > 0 ? 3 + (hashText(group.id) % extra) : hashText(group.id) % SITE_GROUP_TONES.length;
-  return SITE_GROUP_TONES[index];
-}
-
-function applyGroupTone(el, group) {
-  const [fg, border, bg] = siteGroupTone(group);
-  el.style.setProperty("--group-fg", fg);
-  el.style.setProperty("--group-border", border);
-  el.style.setProperty("--group-bg", bg);
-}
-
 function renderSites() {
   if (siteDragging || groupDragging) return;
   renderSiteGroupChips();
@@ -2598,11 +2541,10 @@ function renderSites() {
     const block = document.createElement("div");
     block.className = "site-group-block";
     const group = groups.find((entry) => entry.id === section.groupId);
-    applyGroupTone(block, group || null);
     bindGroupDrop(block, section.groupId);
     if (section.title) {
       const heading = document.createElement("h2");
-      heading.append(Object.assign(document.createElement("span"), { className: "site-group-swatch" }), section.title);
+      heading.textContent = section.title;
       if (group) {
         heading.title = "드래그하면 그룹 순서를 바꿀 수 있습니다.";
         bindGroupBlockDrag(heading, block, group);
@@ -2611,7 +2553,7 @@ function renderSites() {
     }
     const list = document.createElement("div");
     list.className = "site-list";
-    for (const item of section.items) list.append(siteCard(item, groups));
+    for (const item of section.items) list.append(siteCard(item));
     block.append(list);
     host.append(block);
   }
@@ -2840,15 +2782,13 @@ async function moveGroup(movedId, targetId, after) {
   }
 }
 
-function siteCard(item, groups) {
+function siteCard(item) {
   const card = document.createElement("a");
   card.className = "menu-card site-card";
   card.href = item.url;
   card.target = "_blank";
   card.rel = "noopener noreferrer";
   card.title = item.url + " · 드래그하면 순서를 바꿀 수 있습니다.";
-  const group = groups.find((entry) => entry.id === item.group_id);
-  applyGroupTone(card, group || null);
   bindSiteDrag(card, item);
   const head = document.createElement("div");
   head.className = "site-card-head";
@@ -2897,9 +2837,8 @@ function renderSiteGroupChips() {
     const chip = document.createElement("span");
     chip.className = "site-group-chip";
     chip.title = "드래그하면 그룹 순서를 바꿀 수 있습니다.";
-    applyGroupTone(chip, group);
     bindGroupChipDrag(chip, group);
-    chip.append(Object.assign(document.createElement("span"), { className: "site-group-swatch" }), group.name);
+    chip.append(group.name);
     const edit = document.createElement("button");
     edit.type = "button";
     edit.draggable = false;
@@ -2973,14 +2912,13 @@ function renderSiteGroupFilters() {
     siteGroupFilter = "all";
   }
   const chips = [{ id: "all", label: "전체" }];
-  for (const group of groups) chips.push({ id: group.id, label: group.name, group });
-  if (counts.none || siteGroupFilter === "none") chips.push({ id: "none", label: "미지정", group: null });
+  for (const group of groups) chips.push({ id: group.id, label: group.name });
+  if (counts.none || siteGroupFilter === "none") chips.push({ id: "none", label: "미지정" });
   host.replaceChildren();
   for (const chip of chips) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "gap-filter" + (chip.group !== undefined ? " group-tone" : "") + (siteGroupFilter === chip.id ? " on" : "");
-    if (chip.group !== undefined) applyGroupTone(button, chip.group);
+    button.className = "gap-filter" + (siteGroupFilter === chip.id ? " on" : "");
     button.append(chip.label);
     const count = document.createElement("strong");
     count.textContent = String(counts[chip.id] || 0);
