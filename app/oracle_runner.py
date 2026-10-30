@@ -9,9 +9,11 @@ from datetime import datetime
 from typing import Any, Callable
 
 from app.models import ConnectionProfile
+from app.oracle_client import ensure_thick_mode, find_client_dir, missing_client_message
 from app.script_splitter import (
     ScriptStatement,
     is_ddl,
+    plsql_compile_target,
     preview_sql,
     statement_label,
     strip_leading_comments,
@@ -102,6 +104,8 @@ def open_connection(profile: ConnectionProfile) -> Any:
         raise ValueError("사용자 이름을 입력하세요.")
     if not profile.password:
         raise ValueError("비밀번호를 입력하세요.")
+    if find_client_dir() is not None:
+        ensure_thick_mode()
     dsn = build_dsn(profile)
     kwargs = {
         "user": profile.username.strip(),
@@ -109,9 +113,15 @@ def open_connection(profile: ConnectionProfile) -> Any:
         "dsn": dsn,
     }
     try:
-        conn = oracledb.connect(**kwargs, tcp_connect_timeout=10)
-    except TypeError:
-        conn = oracledb.connect(**kwargs)
+        conn = _connect(oracledb, kwargs)
+    except Exception as exc:
+        if "DPY-3010" not in str(exc):
+            raise
+        try:
+            ensure_thick_mode()
+        except RuntimeError as client_exc:
+            raise RuntimeError(str(client_exc) + "\n" + str(exc)) from exc
+        conn = _connect(oracledb, kwargs)
     try:
         _apply_schema(conn, profile.current_schema)
     except Exception:
@@ -121,6 +131,13 @@ def open_connection(profile: ConnectionProfile) -> Any:
             pass
         raise
     return conn
+
+
+def _connect(oracledb: Any, kwargs: dict) -> Any:
+    try:
+        return oracledb.connect(**kwargs, tcp_connect_timeout=10)
+    except TypeError:
+        return oracledb.connect(**kwargs)
 
 
 def build_dsn(profile: ConnectionProfile) -> str:
@@ -255,7 +272,19 @@ def run_script(
             try:
                 with session.conn.cursor() as cursor:
                     cursor.execute(statement.sql)
+                    compile_errors = read_plsql_errors(session.conn, statement.sql, cursor)
                     elapsed = format_elapsed((time.perf_counter() - started_stmt) * 1000)
+                    if compile_errors:
+                        report("log", "err", f"[{index}/{total}] {label} 컴파일 오류, {elapsed}")
+                        report("log", "sql", preview_sql(statement.sql, 360))
+                        for line in compile_errors:
+                            report("log", "err", line)
+                        stats["fail"] += 1
+                        if stop_on_error:
+                            _safe_rollback(session, report)
+                            report("log", "warn", "이후 문장은 실행하지 않았습니다.")
+                            break
+                        continue
                     if cursor.description:
                         columns, rows, truncated = _fetch_rows(cursor)
                         report("result", f"{index}. {label}", columns, rows, truncated)
@@ -328,10 +357,7 @@ def format_elapsed(milliseconds: float) -> str:
 def format_db_error(exc: BaseException) -> str:
     text = str(exc).strip() or exc.__class__.__name__
     if "DPY-3010" in text:
-        return (
-            "이 Oracle 서버 버전은 추가 클라이언트 없이 접속할 수 없습니다. "
-            "Oracle 12.1 이상이 필요합니다.\n" + text
-        )
+        return missing_client_message() + "\n" + text
     if "DPY-6005" in text or "DPY-6001" in text:
         return "데이터베이스 서버에 연결하지 못했습니다. 호스트, 포트, 서비스명을 확인하세요.\n" + text
     if "ORA-01017" in text:
@@ -357,6 +383,63 @@ def format_cell(value: Any) -> str:
     if len(text) > 400:
         return text[:400] + "..."
     return text
+
+
+def read_plsql_errors(conn: Any, sql: str, executed_cursor: Any | None = None) -> list[str]:
+    target = plsql_compile_target(sql)
+    if target is None:
+        warning = getattr(executed_cursor, "warning", None)
+        if warning:
+            return [str(warning)]
+        return []
+    kind, name, schema = target
+    rows = _fetch_error_rows(conn, kind, name, schema)
+    lines = [
+        f"LINE {line}, POS {position}: {text}"
+        for line, position, attribute, text in rows
+        if str(attribute or "ERROR").upper() != "WARNING"
+    ]
+    if lines:
+        title = f"{schema + '.' if schema else ''}{name} 컴파일 오류"
+        return [title, *lines]
+    warning = getattr(executed_cursor, "warning", None)
+    if warning:
+        return [str(warning)]
+    return []
+
+
+def _fetch_error_rows(conn: Any, kind: str, name: str, schema: str) -> list[tuple]:
+    sql = """
+        SELECT line, position, NVL(attribute, 'ERROR'), text
+          FROM all_errors
+         WHERE name = :name
+           AND type = :type
+           AND owner = NVL(:owner, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'))
+         ORDER BY sequence
+    """
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, {"name": name, "type": kind, "owner": schema or None})
+            rows = list(cursor.fetchall() or [])
+            if rows or schema:
+                return rows
+            cursor.execute(sql, {"name": name, "type": kind, "owner": None})
+            rows = list(cursor.fetchall() or [])
+            if rows:
+                return rows
+            cursor.execute(
+                """
+                SELECT line, position, NVL(attribute, 'ERROR'), text
+                  FROM user_errors
+                 WHERE name = :name
+                   AND type = :type
+                 ORDER BY sequence
+                """,
+                {"name": name, "type": kind},
+            )
+            return list(cursor.fetchall() or [])
+    except Exception:
+        return []
 
 
 def _apply_schema(conn: Any, schema: str) -> None:

@@ -41,11 +41,36 @@ class ConnectionStoreTests(unittest.TestCase):
         self.assertEqual(saved.password, "Secret비밀번호!")
         self.assertFalse(saved.password_error)
         self.assertEqual(saved.current_schema, "APP")
-
+        self.assertFalse(saved.record_history)
         self.store.delete(profile.id)
         after_delete = self.store.load()
         self.assertEqual(after_delete.connections, [])
         self.assertIsNone(after_delete.last_active_id)
+
+    def test_record_history_is_exclusive(self):
+        first = ConnectionProfile(
+            id="dev-1",
+            name="개발",
+            host="db.example",
+            identifier="ORCL",
+            username="scott",
+            password="a",
+            record_history=True,
+        )
+        second = ConnectionProfile(
+            id="prd-1",
+            name="운영",
+            host="db.example",
+            identifier="ORCL",
+            username="scott",
+            password="b",
+            record_history=True,
+        )
+        self.store.upsert(first)
+        self.store.upsert(second)
+        loaded = self.store.load()
+        flags = {item.name: item.record_history for item in loaded.connections}
+        self.assertEqual(flags, {"개발": False, "운영": True})
 
     def test_corrupt_file_is_quarantined(self):
         self.path.write_text("{", encoding="utf-8")

@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>오라클 오브젝트 변경 관리</title>
+<title>오라클 변경 관리</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root {
     color-scheme: dark;
@@ -26,11 +27,276 @@
     margin: 0;
     height: 100vh;
     display: grid;
-    grid-template-columns: 300px 1fr;
-    grid-template-rows: 1fr 32px;
+    grid-template-rows: 48px 1fr 32px;
+    overflow: hidden;
     background: var(--bg);
     color: var(--text);
     font-family: "Malgun Gothic", sans-serif;
+  }
+  #app-bar {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 0 14px;
+    background: #020617;
+    border-bottom: 1px solid var(--line);
+  }
+  #app-bar .brand { font-size: 15px; font-weight: 700; }
+  #app-bar nav { display: flex; gap: 6px; }
+  #app-bar nav button.on { background: var(--accent); }
+  #workspace { min-height: 0; overflow: hidden; }
+  .view { height: 100%; min-height: 0; }
+  #view-home {
+    overflow: auto;
+    padding: 28px 32px;
+  }
+  #view-home h1 { margin-bottom: 6px; }
+  .menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+    margin-top: 18px;
+    max-width: 920px;
+  }
+  .menu-card {
+    text-align: left;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    cursor: pointer;
+  }
+  .menu-card:hover { border-color: var(--accent); background: var(--card-on); }
+  .menu-card b { display: block; font-size: 15px; margin-bottom: 6px; }
+  .menu-card small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .menu-card .mail-count, .nav-count {
+    display: inline-block;
+    min-width: 16px;
+    padding: 0 6px;
+    margin-left: 6px;
+    border-radius: 999px;
+    background: #b91c1c;
+    color: #fff;
+    font-size: 11px;
+    line-height: 16px;
+    vertical-align: middle;
+  }
+  #view-mail, #view-sites {
+    overflow: auto;
+    padding: 18px 22px 24px;
+  }
+  .sites-page { width: 100%; max-width: none; display: flex; flex-direction: column; gap: 12px; }
+  .sites-page > .site-form { max-width: 1100px; }
+  .site-form {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .site-fields {
+    display: grid;
+    grid-template-columns: minmax(140px, 180px) minmax(180px, 1fr) minmax(110px, 150px) auto;
+    gap: 8px;
+    align-items: end;
+  }
+  .site-fields label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .site-fields label span { color: var(--muted); font-size: 12px; }
+  .site-fields .row { flex-wrap: nowrap; }
+  .site-groups { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .site-group-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--group-border, var(--line));
+    background: var(--group-bg, #0b1220);
+    color: var(--group-fg, var(--text));
+    border-radius: 999px;
+    padding: 3px 8px 3px 10px;
+    font-size: 12px;
+    cursor: grab;
+    user-select: none;
+  }
+  .site-group-chip:active { cursor: grabbing; }
+  .site-group-chip.dragging { opacity: 0.45; }
+  .site-group-chip.drag-over { box-shadow: inset 3px 0 0 var(--accent); }
+  .site-group-chip.drag-after { box-shadow: inset -3px 0 0 var(--accent); }
+  .site-group-chip button { padding: 1px 7px; cursor: pointer; }
+  .site-group-swatch {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--group-border, var(--line));
+    flex: 0 0 auto;
+  }
+  .site-group-add {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-left: auto;
+  }
+  .site-group-add input { width: 140px; padding: 5px 8px; font-size: 12px; }
+  #site-list { display: flex; flex-direction: column; gap: 28px; }
+  .site-group-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--group-border, var(--line)) 45%, transparent);
+    background: var(--group-bg, transparent);
+  }
+  .site-group-block h2 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--group-fg, var(--text));
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: grab;
+    user-select: none;
+  }
+  .site-group-block h2:active { cursor: grabbing; }
+  .site-group-block.dragging { opacity: 0.45; }
+  .site-group-block.group-before { box-shadow: 0 -3px 0 var(--accent); }
+  .site-group-block.group-after { box-shadow: 0 3px 0 var(--accent); }
+  .site-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+    width: 100%;
+    min-height: 40px;
+  }
+  a.site-card {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    cursor: grab;
+    min-width: 0;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border-color: color-mix(in srgb, var(--group-border, var(--line)) 70%, var(--line));
+    background: color-mix(in srgb, var(--group-bg, var(--card)) 55%, var(--card));
+  }
+  a.site-card:hover {
+    border-color: var(--group-border, var(--accent));
+    background: color-mix(in srgb, var(--group-bg, var(--card-on)) 70%, var(--card-on));
+  }
+  .site-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .site-card-head b {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin: 0;
+  }
+  #site-group-filters .gap-filter.group-tone {
+    border-color: var(--group-border);
+    color: var(--group-fg);
+    background: var(--group-bg);
+  }
+  #site-group-filters .gap-filter.group-tone.on {
+    background: var(--group-border);
+    border-color: var(--group-border);
+    color: #0b1220;
+  }
+  a.site-card b { font-size: 13px; }
+  a.site-card:active { cursor: grabbing; }
+  a.site-card.dragging { opacity: 0.45; }
+  a.site-card.drag-over { box-shadow: inset 3px 0 0 var(--accent); }
+  a.site-card.drag-over.drag-after { box-shadow: inset -3px 0 0 var(--accent); }
+  .site-group-block.drag-over { outline: 1px dashed var(--accent); outline-offset: 4px; border-radius: 12px; }
+  .site-card small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  .site-card .row { margin: 0; flex-wrap: nowrap; flex: 0 0 auto; }
+  .site-card .row button { padding: 0 6px; font-size: 11px; line-height: 18px; }
+  @media (max-width: 720px) {
+    .site-fields { grid-template-columns: 1fr; }
+    .site-group-add { margin-left: 0; width: 100%; }
+    .site-group-add input { flex: 1; width: auto; }
+  }
+  .mail-page { max-width: 920px; display: flex; flex-direction: column; gap: 12px; }
+  #view-mail h2 { margin: 4px 0 6px; font-size: 14px; }
+  .mail-settings {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .mail-digest, .mail-item, .mail-group {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .mail-digest p, .mail-item p { margin: 0; white-space: pre-wrap; line-height: 1.55; }
+  .mail-item { margin-bottom: 8px; }
+  .mail-item b { display: block; margin-bottom: 4px; }
+  .mail-item .meta { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .mail-alert {
+    background: #1e3a8a;
+    border: 1px solid #60a5fa;
+    color: #e0e7ff;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .mail-groups { display: flex; flex-direction: column; gap: 8px; }
+  .mail-toolbar { justify-content: flex-start; }
+  .mail-toolbar .icon-btn, #view-gap aside > .row .icon-btn {
+    margin-left: auto;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    font-size: 16px;
+  }
+  .filter-list { display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow: auto; margin: 6px 0 8px; }
+  .filter-item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    background: #0b1220;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  .filter-item button { padding: 1px 8px; }
+  .filter-item select { width: auto; min-width: 88px; padding: 2px 8px; font-size: 12px; }
+  .filter-add { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; margin-bottom: 10px; }
+  .filter-add.pattern { grid-template-columns: 108px 1fr auto; }
+  .filter-add.pattern.both { grid-template-columns: 108px 1fr 1fr auto; }
+  .filter-add.pattern:not(.both) #gap-pattern-end { display: none; }
+  .filter-add select, .filter-add input { width: 100%; padding: 6px 8px; font-size: 12px; }
+  .mail-item .body {
+    margin: 8px 0 0;
+    padding: 8px;
+    background: var(--editor);
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13px;
+    line-height: 1.5;
+    max-height: 360px;
+    overflow: auto;
+  }
+  .mail-item .actions { margin-top: 8px; }
+  #view-change, #view-gap {
+    display: grid;
+    grid-template-columns: 300px 1fr;
   }
   aside, main { min-height: 0; }
   aside {
@@ -135,9 +401,44 @@
     padding: 8px;
   }
   textarea { flex: 1; min-height: 180px; resize: none; }
+  .reason-field { flex: none; display: flex; flex-direction: column; gap: 4px; margin: 8px 0 6px; }
+  .reason-head { display: flex; align-items: center; gap: 12px; }
+  .reason-head > span { color: var(--muted); font-size: 12px; }
+  .reason-head .check { color: var(--text); font-weight: 600; }
+  #reason, #gap-reason {
+    flex: none;
+    min-height: 56px;
+    height: 56px;
+    resize: vertical;
+    font-family: "Malgun Gothic", sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+  }
   #script { font-size: 12px; line-height: 1.35; padding: 6px; }
-  input[type="checkbox"] { width: auto; padding: 0; }
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 14px;
+    min-width: 14px;
+    height: 14px;
+    margin: 2px 0 0;
+    padding: 0;
+    flex: none;
+    align-self: flex-start;
+    accent-color: var(--accent);
+  }
+  .card-main > div { min-width: 0; flex: 1; }
   label.check { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .history-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #1e3a8a;
+    color: #bfdbfe;
+    font-size: 10px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
   .log-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
   .tabs { display: flex; gap: 6px; }
   .tabs button.on { background: var(--accent); }
@@ -196,22 +497,196 @@
   th { color: #cbd5e1; }
   #status { grid-column: 1 / -1; background: #020617; display: flex; align-items: center; padding: 0 14px; }
   dialog {
+    position: fixed;
+    inset: 0;
+    margin: auto;
     width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    overflow: auto;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 16px;
     background: var(--panel);
     color: var(--text);
     padding: 16px;
+    box-shadow: 0 28px 64px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(148, 163, 184, 0.08);
   }
-  dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  dialog::backdrop {
+    background: rgba(2, 6, 23, 0.72);
+    backdrop-filter: blur(3px);
+  }
   dialog h2 { margin: 0 0 10px; font-size: 16px; }
+  .notice-dialog {
+    width: min(420px, calc(100vw - 32px));
+    padding: 28px 24px 20px;
+    text-align: center;
+    overflow: hidden;
+    animation: notice-in 0.18s ease-out;
+  }
+  .notice-dialog.info { border-color: rgba(147, 197, 253, 0.35); }
+  .notice-dialog.warn { border-color: rgba(251, 191, 36, 0.4); }
+  .notice-dialog.error { border-color: rgba(248, 113, 113, 0.4); }
+  @keyframes notice-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  .notice-icon {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+  .notice-dialog.info .notice-icon { background: rgba(96, 165, 250, 0.16); color: #93c5fd; }
+  .notice-dialog.warn .notice-icon { background: rgba(251, 191, 36, 0.16); color: var(--warn); }
+  .notice-dialog.error .notice-icon { background: rgba(248, 113, 113, 0.16); color: var(--err); }
+  .notice-dialog h2 { margin: 0 0 8px; font-size: 17px; }
+  .notice-message {
+    margin: 0 0 18px;
+    color: #cbd5e1;
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-align: left;
+  }
+  .notice-detail {
+    margin: 0 0 18px;
+    max-height: 180px;
+    overflow: auto;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--editor);
+    color: var(--sql);
+    font: 12px/1.45 Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-align: left;
+  }
+  .notice-actions { justify-content: center; gap: 8px; }
+  .notice-actions button { min-width: 88px; padding: 7px 16px; border-radius: 8px; font-size: 13px; }
   .field { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
   .field span { color: var(--muted); font-size: 13px; }
   #form-message { min-height: 18px; font-size: 12px; }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
+  .path-box input {
+    font: 12px Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gap-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 8px;
+  }
+  .gap-stat {
+    background: #0b1220;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .gap-stat strong { color: var(--text); }
+  .kind-tag {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    background: #1e3a8a;
+    color: #e0e7ff;
+  }
+  .kind-tag.table_add, .kind-tag.column_add { background: #14532d; color: #bbf7d0; }
+  .kind-tag.table_delete, .kind-tag.column_delete { background: #7f1d1d; color: #fecaca; }
+  .kind-tag.column_change { background: #1e3a8a; color: #e0e7ff; }
+  .kind-tag.extra { background: #3f3f46; color: #e4e4e7; }
+  #gap-diff-wrap, #gap-ddl { min-height: 120px; }
+  #gap-diff-wrap { overflow: auto; flex: 1; background: var(--editor); border-radius: 8px; padding: 0; }
+  #gap-diff-wrap table { width: 100%; }
+  #gap-diff-wrap th {
+    position: sticky;
+    top: 0;
+    background: #020617;
+    z-index: 1;
+  }
+  #gap-diff-wrap td { white-space: normal; max-width: 240px; word-break: break-word; }
+  .gap-act { display: flex; flex-direction: column; gap: 4px; }
+  .gap-act button { font-size: 11px; padding: 2px 8px; white-space: nowrap; }
+  .gap-act .to-db { background: #1d4ed8; }
+  .gap-act .to-model { background: #0f766e; }
+  #gap-ddl { flex: 0 0 220px; min-height: 160px; }
+  #gap-cards { overflow: auto; display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; }
+  .gap-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; align-items: center; }
+  .gap-filter {
+    border: 1px solid var(--line);
+    background: #0b1220;
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12px;
+  }
+  .gap-filter.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .gap-filter strong { margin-left: 4px; }
+  .progress-dialog { width: min(420px, calc(100vw - 32px)); }
+  .progress-track {
+    height: 10px;
+    margin-top: 12px;
+    background: #0b1220;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 38%;
+    border-radius: 999px;
+    background: var(--accent);
+    animation: gap-progress 1.15s ease-in-out infinite;
+  }
+  @keyframes gap-progress {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(280%); }
+  }
 </style>
 </head>
 <body>
+<header id="app-bar">
+  <span class="brand">OMC연구소</span>
+  <nav>
+    <button type="button" class="on" data-view="home">메뉴</button>
+    <button type="button" data-view="change">오브젝트 변경 관리</button>
+    <button type="button" data-view="gap">모델 &amp; DB 갭분석</button>
+    <button type="button" data-view="mail">메일 정리 <span class="nav-count mail-count hidden">0</span></button>
+    <button type="button" data-view="sites">사이트 관리</button>
+  </nav>
+</header>
+<div id="workspace">
+<section id="view-home" class="view">
+  <h1>메뉴</h1>
+  <p class="hint">사용할 기능을 선택하세요. 이후 기능도 이 메뉴에서 들어갑니다.</p>
+  <div class="menu-grid">
+    <button class="menu-card" type="button" data-view="change">
+      <b>오브젝트 변경 관리</b>
+      <small>여러 데이터베이스에 테이블, 인덱스, 데이터, 프로시저 변경 스크립트를 실행하고 이력을 남깁니다.</small>
+    </button>
+    <button class="menu-card" type="button" data-view="gap">
+      <b>모델 &amp; DB 갭분석</b>
+      <small>ERwin 모델과 선택한 데이터베이스의 테이블·컬럼 차이를 비교하고, DB에 반영할 DDL을 확인하고 실행합니다.</small>
+    </button>
+    <button class="menu-card" type="button" data-view="mail">
+      <b>메일 정리 <span class="mail-count hidden">0</span></b>
+      <small>mgjeon@openmade.co.kr 받은편지함의 메일을 알리고, 읽지 않은 메일을 요약합니다.</small>
+    </button>
+    <button class="menu-card" type="button" data-view="sites">
+      <b>사이트 관리</b>
+      <small>사이트명과 URL을 그룹으로 나눠 저장하고, 목록에서 클릭하면 바로 갑니다.</small>
+    </button>
+  </div>
+</section>
+<section id="view-change" class="view hidden">
 <aside>
   <h1>DB 연결</h1>
   <p class="hint">저장된 연결은 열 때마다 자동으로 접속합니다. 연결된 항목을 체크하면 그 데이터베이스에만 스크립트가 동시에 반영됩니다.</p>
@@ -239,12 +714,20 @@
     <button id="open-file" type="button">열기</button>
     <button id="save-file" type="button">저장</button>
     <button id="sample" type="button">예제</button>
+    <button id="clear-script" type="button">스크립트 지우기</button>
     <button id="inspect" type="button">검사</button>
     <button class="primary" id="execute" type="button">실행</button>
     <button class="danger" id="cancel" type="button" disabled>중지</button>
     <button id="commit" type="button">커밋</button>
     <button id="rollback" type="button">롤백</button>
     <input id="file" type="file" accept=".sql,text/plain" class="hidden">
+  </div>
+  <div class="reason-field">
+    <div class="reason-head">
+      <span>변경 사유</span>
+      <label class="check" title="Master 변경이력 기본 DB로 지정한 연결에서 성공한 변경만 기록합니다."><input id="history-flag" type="checkbox">변경이력 저장</label>
+    </div>
+    <textarea id="reason" spellcheck="true" placeholder="이 변경을 하는 이유를 입력하세요. 변경이력을 저장할 때 함께 기록됩니다."></textarea>
   </div>
   <textarea id="script" spellcheck="false" placeholder="변경 스크립트를 입력하세요."></textarea>
   <div class="row">
@@ -262,7 +745,126 @@
   <pre id="log"></pre>
   <div id="grid-wrap" class="hidden"></div>
 </main>
-<div id="status">준비</div>
+</section>
+<section id="view-gap" class="view hidden">
+<aside>
+  <div class="row">
+    <h1>모델 &amp; DB</h1>
+    <button class="icon-btn" id="gap-settings" type="button" title="추출 제외 설정">⚙</button>
+  </div>
+  <p class="hint">기본 모델은 OMC-SPOP_v1.76.erwin 입니다. 파일 찾기로 바꿀 수 있습니다. 주제영역·테이블 제외는 설정에서 추가/삭제합니다. 데이터베이스는 오브젝트 변경 관리에 저장된 연결을 그대로 쓰며, 갭 분석은 한 번에 DB 하나만 선택합니다.</p>
+  <section class="store-box">
+    <b>ERwin 모델</b>
+    <p class="hint" id="gap-model-summary">아직 모델을 읽지 않았습니다.</p>
+    <div class="path-box">
+      <input id="gap-path" placeholder="OMC-SPOP_v1.76.erwin">
+    </div>
+    <div class="row">
+      <button class="primary" id="gap-browse" type="button">파일 찾기</button>
+      <button id="gap-load" type="button">모델 읽기</button>
+    </div>
+  </section>
+  <div class="row">
+    <button id="gap-reconnect" type="button">모두 연결</button>
+  </div>
+  <div id="gap-cards"></div>
+</aside>
+<main>
+  <div class="row">
+    <h1 id="gap-active-name">DB를 하나 선택하세요</h1>
+    <button class="primary" id="gap-analyze" type="button">갭 분석</button>
+  </div>
+  <div id="gap-active-detail" class="hint">오브젝트 변경 관리와 같은 DB 목록입니다. 비교할 데이터베이스를 하나 고르세요.</div>
+  <div id="gap-stats" class="gap-stats"></div>
+  <div id="gap-filters" class="gap-filters"></div>
+  <div class="log-bar">
+    <div class="tabs">
+      <button type="button" class="on" data-gap-tab="diff">차이</button>
+      <button type="button" data-gap-tab="ddl">반영 DDL</button>
+      <button type="button" data-gap-tab="log">실행 로그</button>
+    </div>
+  </div>
+  <div id="gap-diff-wrap"></div>
+  <textarea id="gap-ddl" class="hidden" spellcheck="false" placeholder="선택한 구분(전체/테이블 추가/테이블 삭제 등)에 해당하는 DDL만 나타납니다. 실행 전에 확인하고 수정할 수 있습니다."></textarea>
+  <pre id="gap-log" class="hidden"></pre>
+  <div class="reason-field">
+    <div class="reason-head">
+      <span>변경 사유</span>
+      <label class="check" title="Master 변경이력 기본 DB로 지정한 연결에서 성공한 변경만 기록합니다."><input id="gap-history-flag" type="checkbox">변경이력 저장</label>
+    </div>
+    <textarea id="gap-reason" spellcheck="true" placeholder="DB에 반영하는 이유를 입력하세요. 변경이력을 저장할 때 함께 기록됩니다."></textarea>
+  </div>
+  <div class="row">
+    <button id="gap-inspect" type="button">검사</button>
+    <button class="primary" id="gap-execute" type="button">DDL 실행</button>
+    <button class="danger" id="gap-cancel" type="button" disabled>중지</button>
+    <label class="check"><input id="gap-commit-flag" type="checkbox" checked>성공 시 커밋</label>
+    <label class="check"><input id="gap-stop-flag" type="checkbox" checked>오류 시 중단</label>
+  </div>
+  <p class="hint">모델에만 있는 테이블·컬럼은 CREATE/ALTER로 만들고, DB에만 있는 객체는 삭제하지 않습니다. DDL은 실행 즉시 반영되며 롤백되지 않습니다.</p>
+</main>
+</section>
+<section id="view-sites" class="view hidden">
+  <div class="sites-page">
+    <h1>사이트 관리</h1>
+    <p class="hint">그룹명을 추가한 뒤 사이트를 지정하세요. 카드를 클릭하면 바로 가고, 드래그하면 순서를 바꿀 수 있습니다.</p>
+    <div class="site-form">
+      <b>그룹</b>
+      <div class="site-groups">
+        <div id="site-group-chips" class="site-groups"></div>
+        <div class="site-group-add">
+          <input id="site-group-edit-id" type="hidden">
+          <input id="site-group-input" placeholder="예: 개발" autocomplete="off">
+          <button id="site-group-add" type="button">그룹 추가</button>
+          <button id="site-group-cancel" type="button" class="hidden">취소</button>
+        </div>
+      </div>
+    </div>
+    <form id="site-form" class="site-form">
+      <input id="site-edit-id" type="hidden">
+      <div class="site-fields">
+        <label><span>사이트명</span><input id="site-name" placeholder="예: OpenPOP" autocomplete="off"></label>
+        <label><span>사이트 URL</span><input id="site-url" placeholder="예: https://www.openmade.co.kr" autocomplete="off"></label>
+        <label><span>그룹</span>
+          <select id="site-group">
+            <option value="">그룹 없음</option>
+          </select>
+        </label>
+        <div class="row">
+          <button class="primary" id="site-save" type="submit">저장</button>
+          <button id="site-cancel" type="button" class="hidden">취소</button>
+        </div>
+      </div>
+    </form>
+    <div id="site-group-filters" class="gap-filters"></div>
+    <div id="site-list"></div>
+  </div>
+</section>
+<section id="view-mail" class="view hidden">
+  <div class="mail-page">
+    <div class="row mail-toolbar">
+      <h1>메일 정리</h1>
+      <button class="primary" id="mail-refresh" type="button">지금 확인</button>
+      <button class="icon-btn" id="mail-settings" type="button" title="연결 설정">⚙</button>
+    </div>
+    <p class="hint">읽지 않은 메일만 알립니다. 요약과 전체 내용을 본 뒤 읽음 처리를 하면 목록과 알림에서 빠집니다.</p>
+    <div id="mail-alert" class="mail-alert hidden"></div>
+    <section class="mail-digest">
+      <h2>전체 요약</h2>
+      <p id="mail-digest-text">아직 확인하지 않았습니다. 설정에서 웹메일 비밀번호를 저장하세요.</p>
+    </section>
+    <section>
+      <h2>보낸 사람별</h2>
+      <div id="mail-groups" class="mail-groups"></div>
+    </section>
+    <section>
+      <h2>읽지 않은 메일</h2>
+      <div id="mail-list"></div>
+    </section>
+  </div>
+</section>
+</div>
+<div id="status">메뉴에서 기능을 선택하세요.</div>
 
 <dialog id="dialog">
   <form id="form" method="dialog">
@@ -282,6 +884,8 @@
     <label class="field"><span>비밀번호</span><input id="password" type="password"></label>
     <label class="field"><span>현재 스키마</span><input id="schema" placeholder="선택 사항"></label>
     <label class="field"><span>직접 입력 DSN</span><input id="dsn" placeholder="선택 사항. 입력하면 호스트 대신 사용"></label>
+    <label class="check" id="history-db-row"><input id="history-db" type="checkbox">Master 변경이력 기본 DB</label>
+    <p class="hint" id="history-db-hint">이 연결에서 성공한 변경만 Master Object/Data/Procedure 변경이력 파일에 기록합니다. 하나만 지정할 수 있습니다.</p>
     <p id="form-message"></p>
     <div class="row">
       <button class="primary" id="save-connection" type="button">저장</button>
@@ -291,12 +895,273 @@
   </form>
 </dialog>
 
+<dialog id="gap-settings-dialog">
+  <h2>추출 제외 설정</h2>
+  <p class="hint">제외한 주제영역에만 있는 테이블, 그리고 이름 규칙에 맞는 테이블은 모델에서 읽지 않습니다. 기본값은 Main Subject Area, _로 시작, _PRE로 끝, querymedic.로 시작, PK 컬럼 순서 변경 제외입니다. 시작+끝은 VSQL로 시작하고 PRE로 끝나는 테이블처럼 지정합니다.</p>
+  <b>주제영역</b>
+  <div id="gap-sa-list" class="filter-list"></div>
+  <div class="filter-add">
+    <input id="gap-sa-input" placeholder="예: Main Subject Area">
+    <button id="gap-sa-add" type="button">추가</button>
+  </div>
+  <b>테이블 이름</b>
+  <div id="gap-pattern-list" class="filter-list"></div>
+  <div class="filter-add pattern">
+    <select id="gap-pattern-match">
+      <option value="prefix">시작</option>
+      <option value="suffix">끝</option>
+      <option value="prefix_suffix">시작+끝</option>
+      <option value="contains">포함</option>
+      <option value="exact">일치</option>
+    </select>
+    <input id="gap-pattern-value" placeholder="예: _PRE">
+    <input id="gap-pattern-end" placeholder="예: PRE">
+    <button id="gap-pattern-add" type="button">추가</button>
+  </div>
+  <b>컬럼 변경</b>
+  <div class="filter-list">
+    <div class="filter-item">
+      <span>PK 컬럼 순서 변경</span>
+      <select id="gap-pk-order">
+        <option value="exclude">제외</option>
+        <option value="include">포함</option>
+      </select>
+    </div>
+  </div>
+  <p id="gap-settings-msg" class="hint"></p>
+  <div class="row">
+    <button class="primary" id="gap-settings-save" type="button">설정 저장</button>
+    <button id="gap-settings-reset" type="button">기본값</button>
+    <button id="gap-settings-close" type="button">닫기</button>
+  </div>
+</dialog>
+
+<dialog id="gap-progress" class="progress-dialog">
+  <h2>모델을 읽는 중</h2>
+  <p class="hint" id="gap-progress-text">ERwin 모델에서 테이블과 컬럼 정보를 추출합니다.</p>
+  <div class="progress-track"><div class="progress-bar"></div></div>
+</dialog>
+
+<dialog id="notice" class="notice-dialog info">
+  <div class="notice-icon" id="notice-icon"></div>
+  <h2 id="notice-title">알림</h2>
+  <p class="notice-message" id="notice-message"></p>
+  <pre class="notice-detail hidden" id="notice-detail"></pre>
+  <div class="row notice-actions">
+    <button class="primary" id="notice-ok" type="button">확인</button>
+    <button id="notice-cancel" type="button">취소</button>
+  </div>
+</dialog>
+
+<dialog id="mail-dialog">
+  <form method="dialog">
+    <h2>메일 연결 설정</h2>
+    <p class="hint">아이디는 메일주소 전체, 비밀번호는 웹메일 로그인 비밀번호입니다. POP3 SSL 995, 서버의 메일은 삭제하지 않습니다.</p>
+    <label class="field"><span>메일 주소</span><input id="mail-email" autocomplete="username"></label>
+    <label class="field"><span>웹메일 비밀번호</span><input id="mail-password" type="password" autocomplete="current-password"></label>
+    <label class="field"><span>POP3 서버</span><input id="mail-host"></label>
+    <label class="field"><span>포트</span><input id="mail-port"></label>
+    <label class="field"><span>확인 주기(초)</span><input id="mail-poll"></label>
+    <p id="mail-settings-msg" class="hint"></p>
+    <div class="row">
+      <button class="primary" id="mail-save" type="button">설정 저장</button>
+      <button id="mail-test" type="button">연결 테스트</button>
+      <button id="mail-close" type="button">닫기</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const statusNames = { connected: "연결됨", connecting: "연결 중", failed: "실패", disconnected: "끊김" };
-let state = { connections: [], script_store: null, active_id: null, selected_ids: [], running: false };
+const views = {
+  home: { title: "오라클 변경 관리", status: "메뉴에서 기능을 선택하세요." },
+  change: { title: "오브젝트 변경 관리" },
+  gap: { title: "모델 & DB 갭분석", status: "모델을 지정하고 비교할 DB를 하나 선택하세요." },
+  mail: { title: "메일 정리", status: "받은편지함의 메일을 확인하고 있습니다." },
+  sites: { title: "사이트 관리", status: "그룹 제목이나 칩을 드래그하면 그룹 순서를 바꿀 수 있습니다." },
+};
+let state = { connections: [], script_store: null, active_id: null, selected_ids: [], running: false, mail: {}, gap: {}, sites: [], site_groups: [] };
+let siteGroupFilter = "all";
+let siteDragging = false;
+let siteDragId = null;
+let siteDidDrag = false;
+let groupDragging = false;
+let groupDragId = null;
+let groupDidDrag = false;
+let gapItems = [];
+let gapReport = null;
+let noticeQueue = Promise.resolve();
+
+function splitNotice(text) {
+  const raw = String(text ?? "");
+  const idx = raw.search(/\n\n/);
+  if (idx > 0 && raw.length - idx > 20) {
+    return { message: raw.slice(0, idx).trim(), detail: raw.slice(idx).trim() };
+  }
+  return { message: raw, detail: "" };
+}
+
+function showAlert(message, options = {}) {
+  const split = splitNotice(message);
+  return showNotice({
+    title: options.title || "알림",
+    message: split.message,
+    detail: options.detail || split.detail,
+    kind: options.kind || "info",
+    confirm: false,
+    ok: options.ok || "확인",
+  });
+}
+
+function showConfirm(message, options = {}) {
+  const split = splitNotice(message);
+  return showNotice({
+    title: options.title || "확인",
+    message: split.message,
+    detail: options.detail || split.detail,
+    kind: options.kind || "warn",
+    confirm: true,
+    danger: Boolean(options.danger),
+    ok: options.ok || "확인",
+    cancel: options.cancel || "취소",
+  });
+}
+
+function showNotice(opts) {
+  const next = noticeQueue.then(() => openNotice(opts));
+  noticeQueue = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+const NOTICE_ICONS = {
+  info: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="8" r="1.15" fill="currentColor" stroke="none"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.8 2.8 20h18.4L12 3.8z"/><path d="M12 10v5"/><circle cx="12" cy="17.2" r="1.05" fill="currentColor" stroke="none"/></svg>',
+  error: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg>',
+};
+
+function openNotice(opts) {
+  return new Promise((resolve) => {
+    const dlg = $("notice");
+    const ok = $("notice-ok");
+    const cancel = $("notice-cancel");
+    const kind = opts.kind || "info";
+    dlg.className = "notice-dialog " + kind;
+    $("notice-icon").innerHTML = NOTICE_ICONS[kind] || NOTICE_ICONS.info;
+    $("notice-title").textContent = opts.title || "알림";
+    const message = $("notice-message");
+    message.textContent = opts.message || "";
+    message.style.textAlign = opts.detail ? "left" : "center";
+    const detail = $("notice-detail");
+    if (opts.detail) {
+      detail.textContent = opts.detail;
+      detail.classList.remove("hidden");
+    } else {
+      detail.textContent = "";
+      detail.classList.add("hidden");
+    }
+    ok.textContent = opts.ok || "확인";
+    ok.className = opts.danger ? "danger" : "primary";
+    cancel.textContent = opts.cancel || "취소";
+    cancel.classList.toggle("hidden", !opts.confirm);
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      ok.removeEventListener("click", onOk);
+      cancel.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancelEvent);
+      if (dlg.open) dlg.close();
+      resolve(value);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    const onCancelEvent = (event) => {
+      event.preventDefault();
+      finish(!opts.confirm);
+    };
+    ok.addEventListener("click", onOk);
+    cancel.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancelEvent);
+    dlg.showModal();
+    ok.focus();
+  });
+}
+const GAP_FILTERS = [
+  { id: "table_add", label: "테이블 추가" },
+  { id: "table_delete", label: "테이블 삭제" },
+  { id: "column_add", label: "컬럼 추가" },
+  { id: "column_delete", label: "컬럼 삭제" },
+  { id: "column_change", label: "컬럼 변경" },
+];
+const GAP_DEFAULT_FILTERS = new Set(["table_add", "column_add", "column_change"]);
+let gapFilters = new Set(GAP_DEFAULT_FILTERS);
+const GAP_MATCH_LABELS = { prefix: "시작", suffix: "끝", prefix_suffix: "시작+끝", contains: "포함", exact: "일치" };
+let gapFilterDraft = { subject_areas: [], table_patterns: [] };
+let lastMailNoticeId = null;
+let mailSettingsFilled = false;
+let openMailUids = new Set();
+let lastMailStamp = "";
 let results = [];
 let dialogMode = "target";
+let currentView = "home";
+
+function showView(name, pushHash = true) {
+  currentView = views[name] ? name : "home";
+  document.querySelectorAll(".view").forEach((el) => {
+    el.classList.toggle("hidden", el.id !== "view-" + currentView);
+  });
+  document.querySelectorAll("#app-bar nav button").forEach((button) => {
+    button.classList.toggle("on", button.dataset.view === currentView);
+  });
+  document.title = views[currentView].title;
+  if (pushHash) {
+    const next = currentView === "home" ? location.pathname : location.pathname + "#/" + currentView;
+    if (location.pathname + location.hash !== next) history.replaceState(null, "", next);
+  }
+  if (currentView === "mail") {
+    requestMailNotify();
+    loadMail(true).then(() => applyIdleStatus()).catch((error) => setStatus(error.message));
+    return;
+  }
+  applyIdleStatus();
+}
+
+function applyIdleStatus() {
+  if (state.running) return;
+  if (currentView === "home") {
+    setStatus(views.home.status);
+    return;
+  }
+  if (currentView === "mail") {
+    const mail = state.mail || {};
+    if (mail.error) setStatus(mail.error);
+    else if (mail.headline) setStatus(mail.headline);
+    else setStatus(views.mail.status);
+    return;
+  }
+  if (currentView === "gap") {
+    const gap = state.gap || {};
+    if (gap.loaded) setStatus(`모델 ${gap.table_count}개 테이블 · 비교할 DB를 하나 선택하세요.`);
+    else setStatus(views.gap.status);
+    return;
+  }
+  if (currentView === "sites") {
+    const count = (state.sites || []).length;
+    const groups = (state.site_groups || []).length;
+    setStatus(count ? `저장한 사이트 ${count}개 · 그룹 ${groups}개` : views.sites.status);
+    return;
+  }
+  const ok = state.connections.filter((item) => item.status === "connected").length;
+  const fail = state.connections.filter((item) => item.status === "failed").length;
+  const pending = state.connections.filter((item) => item.status === "connecting").length;
+  if (!state.connections.length) setStatus("저장된 연결이 없습니다. 연결 추가를 누르세요.");
+  else setStatus(`연결됨 ${ok} · 실패 ${fail} · 연결 중 ${pending}`);
+}
+
+function viewFromHash() {
+  return (location.hash.replace(/^#\/?/, "") || "home");
+}
 
 function setStatus(text) { $("status").textContent = text; }
 
@@ -315,7 +1180,10 @@ async function api(path, options = {}) {
 }
 
 function render() {
+  renderMailBadge();
   renderScriptStore();
+  renderGap();
+  renderSites();
   const cards = $("cards");
   cards.replaceChildren();
   if (!state.connections.length) {
@@ -338,7 +1206,13 @@ function render() {
     box.onchange = () => toggleSelection(item, box.checked);
     const body = document.createElement("div");
     const title = document.createElement("b");
-    title.textContent = item.name;
+    title.append(item.name);
+    if (item.record_history) {
+      const tag = document.createElement("span");
+      tag.className = "history-tag";
+      tag.textContent = "변경이력";
+      title.append(" ", tag);
+    }
     const line = document.createElement("small");
     line.textContent = item.target;
     const stateLine = document.createElement("small");
@@ -364,12 +1238,12 @@ function render() {
     remove.textContent = "삭제";
     remove.onclick = async (event) => {
       event.stopPropagation();
-      if (!confirm("'" + item.name + "' 연결을 삭제할까요?\n다음 실행부터 자동으로 접속하지 않습니다.")) return;
+      if (!await showConfirm("'" + item.name + "' 연결을 삭제할까요?\n다음 실행부터 자동으로 접속하지 않습니다.", { title: "연결 삭제", danger: true, ok: "삭제" })) return;
       try {
         await api("/api/connections/" + encodeURIComponent(item.id), { method: "DELETE" });
         await refresh();
       } catch (error) {
-        alert(error.message);
+        await showAlert(error.message, { kind: "error", title: "삭제 실패" });
       }
     };
     actions.append(edit, remove);
@@ -446,19 +1320,19 @@ function renderScriptStore() {
       await api("/api/reconnect", { method: "POST", body: { id: item.id } });
       await refresh(false);
     } catch (error) {
-      alert(error.message);
+      await showAlert(error.message, { kind: "error", title: "다시 연결 실패" });
     }
   };
   const remove = document.createElement("button");
   remove.type = "button";
   remove.textContent = "삭제";
   remove.onclick = async () => {
-    if (!confirm("스크립트 저장 데이터베이스 연결을 삭제할까요?\n실행 스크립트는 이 데이터베이스에 보관하지 않습니다.")) return;
+    if (!await showConfirm("스크립트 저장 데이터베이스 연결을 삭제할까요?\n실행 스크립트는 이 데이터베이스에 보관하지 않습니다.", { title: "연결 삭제", danger: true, ok: "삭제" })) return;
     try {
       await api("/api/script-store", { method: "DELETE" });
       await refresh();
     } catch (error) {
-      alert(error.message);
+      await showAlert(error.message, { kind: "error", title: "삭제 실패" });
     }
   };
   actions.append(reconnect, remove);
@@ -470,6 +1344,19 @@ function chosenIds() {
   return state.connections.filter((item) => item.selected).map((item) => item.id);
 }
 
+function syncHistoryFlag() {
+  const box = $("history-flag");
+  if (!box) return;
+  box.checked = state.connections.some((item) => item.record_history && item.selected);
+}
+
+function syncGapHistoryFlag() {
+  const box = $("gap-history-flag");
+  if (!box) return;
+  const chosen = gapState().connection_id;
+  box.checked = state.connections.some((item) => item.record_history && item.id === chosen);
+}
+
 async function toggleSelection(item, checked) {
   const ids = new Set(chosenIds());
   if (checked) ids.add(item.id);
@@ -477,8 +1364,9 @@ async function toggleSelection(item, checked) {
   try {
     await api("/api/connections/select", { method: "POST", body: { ids: [...ids] } });
     await refresh(false);
+    syncHistoryFlag();
   } catch (error) {
-    alert(error.message);
+    await showAlert(error.message, { kind: "error", title: "선택 실패" });
     await refresh(false);
   }
 }
@@ -486,13 +1374,13 @@ async function toggleSelection(item, checked) {
 async function refresh(updateStatus = true) {
   state = await api("/api/state");
   render();
-  if (updateStatus && !state.running) {
-    const ok = state.connections.filter((item) => item.status === "connected").length;
-    const fail = state.connections.filter((item) => item.status === "failed").length;
-    const pending = state.connections.filter((item) => item.status === "connecting").length;
-    if (!state.connections.length) setStatus("저장된 연결이 없습니다. 연결 추가를 누르세요.");
-    else setStatus(`연결됨 ${ok} · 실패 ${fail} · 연결 중 ${pending}`);
+  maybeNotifyMail();
+  if (currentView === "mail") {
+    const mail = state.mail || {};
+    const stamp = [mail.unread, mail.notice_id || 0, mail.error || "", mail.headline || ""].join("|");
+    if (stamp !== lastMailStamp) await loadMail(false);
   }
+  if (updateStatus) applyIdleStatus();
   if (state.warning) setStatus(state.warning);
 }
 
@@ -514,6 +1402,11 @@ function openDialog(item, mode = "target") {
   $("password").placeholder = item ? "비워 두면 저장된 비밀번호를 사용합니다." : "비밀번호";
   $("schema").value = item ? item.current_schema : "";
   $("dsn").value = item ? item.dsn : "";
+  $("history-db").checked = !!(item && item.record_history);
+  const historyRow = $("history-db-row");
+  const historyHint = $("history-db-hint");
+  if (historyRow) historyRow.classList.toggle("hidden", mode === "script");
+  if (historyHint) historyHint.classList.toggle("hidden", mode === "script");
   $("form-message").textContent = mode === "script"
     ? "실행 스크립트를 보관할 연결입니다. 저장 테이블은 아직 지정하지 않습니다."
     : "";
@@ -533,14 +1426,19 @@ function formPayload() {
     password: $("password").value,
     current_schema: $("schema").value,
     dsn: $("dsn").value,
+    record_history: dialogMode !== "script" && $("history-db").checked,
   };
 }
 
-function clearLog() { $("log").replaceChildren(); }
+function logEl() {
+  return currentView === "gap" ? $("gap-log") : $("log");
+}
+
+function clearLog() { logEl().replaceChildren(); }
 
 function addLog(message, tag) {
   const text = String(message || "");
-  const log = $("log");
+  const log = logEl();
   if (text.startsWith("■ ")) {
     const section = document.createElement("div");
     section.className = "log-section";
@@ -581,7 +1479,7 @@ function addLog(message, tag) {
 }
 
 function showTab(name) {
-  document.querySelectorAll(".tabs button").forEach((button) => {
+  document.querySelectorAll(".log-bar .tabs button").forEach((button) => {
     button.classList.toggle("on", button.dataset.tab === name);
   });
   $("log").classList.toggle("hidden", name !== "log");
@@ -624,6 +1522,203 @@ function showResults(list) {
   if (results.length) showTab("grid");
 }
 
+function renderMailBadge() {
+  const count = (state.mail && state.mail.unread) || 0;
+  document.querySelectorAll(".mail-count").forEach((el) => {
+    el.textContent = String(count);
+    el.classList.toggle("hidden", !count);
+  });
+}
+
+function requestMailNotify() {
+  if (!("Notification" in window) || Notification.permission !== "default") return;
+  Notification.requestPermission().catch(() => {});
+}
+
+function maybeNotifyMail() {
+  const mail = state.mail || {};
+  const id = mail.notice_id || 0;
+  if (lastMailNoticeId === null) {
+    lastMailNoticeId = id;
+    return;
+  }
+  if (id === lastMailNoticeId) return;
+  lastMailNoticeId = id;
+  if (!mail.notice) return;
+  setStatus(mail.notice);
+  $("mail-alert").textContent = mail.notice;
+  $("mail-alert").classList.remove("hidden");
+  if (window.Notification && Notification.permission === "granted") {
+    try { new Notification("OMC연구소 메일", { body: mail.notice }); } catch (error) {}
+  }
+}
+
+function fillMailSettings(data, force = false) {
+  const typing = document.activeElement && document.activeElement.closest("#mail-dialog");
+  $("mail-password").placeholder = data.has_password
+    ? "비워 두면 저장된 웹메일 비밀번호를 사용합니다."
+    : "웹메일 로그인 비밀번호";
+  if (typing) return;
+  if (!force && mailSettingsFilled) return;
+  $("mail-email").value = data.email || "mgjeon@openmade.co.kr";
+  $("mail-host").value = data.pop_host || "nmail.nanuminet.com";
+  $("mail-port").value = data.pop_port || 995;
+  $("mail-poll").value = data.poll_seconds || 45;
+  $("mail-password").value = "";
+  mailSettingsFilled = true;
+}
+
+function setMailBodyOpen(uid, body, toggle, open) {
+  if (open) openMailUids.add(uid);
+  else openMailUids.delete(uid);
+  body.classList.toggle("hidden", !open);
+  toggle.textContent = open ? "내용 숨기기" : "전체 내용";
+}
+
+function mailCard(item) {
+  const box = document.createElement("article");
+  box.className = "mail-item";
+  const title = document.createElement("b");
+  title.textContent = item.subject || "(제목 없음)";
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = (item.sender || "") + " <" + (item.email || "") + "> · " + (item.date || "");
+  const summary = document.createElement("p");
+  summary.textContent = item.summary || item.preview || "";
+  const body = document.createElement("pre");
+  body.className = "body";
+  body.textContent = item.body || item.preview || "(본문 없음)";
+  const actions = document.createElement("div");
+  actions.className = "row actions";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  setMailBodyOpen(item.uid, body, toggle, openMailUids.has(item.uid));
+  toggle.onclick = () => {
+    setMailBodyOpen(item.uid, body, toggle, body.classList.contains("hidden"));
+  };
+  const readBtn = document.createElement("button");
+  readBtn.type = "button";
+  readBtn.className = "primary";
+  readBtn.textContent = "읽음";
+  readBtn.onclick = () => markMailRead(item.uid);
+  actions.append(toggle, readBtn);
+  box.append(title, meta, summary, body, actions);
+  return box;
+}
+
+function mailForm() {
+  return {
+    email: $("mail-email").value,
+    password: $("mail-password").value,
+    pop_host: $("mail-host").value,
+    pop_port: $("mail-port").value,
+    poll_seconds: $("mail-poll").value,
+  };
+}
+
+function renderMail(data, forceSettings = false) {
+  state.mail = data;
+  renderMailBadge();
+  fillMailSettings(data, forceSettings);
+  $("mail-digest-text").textContent = data.digest || data.headline || "아직 확인하지 않았습니다.";
+  if (data.notice) {
+    $("mail-alert").textContent = data.notice;
+    $("mail-alert").classList.remove("hidden");
+  } else {
+    $("mail-alert").classList.add("hidden");
+  }
+  $("mail-settings-msg").textContent = data.error || "";
+  const groups = $("mail-groups");
+  groups.replaceChildren();
+  if (!(data.groups || []).length) {
+    groups.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "표시할 보낸 사람이 없습니다.",
+    }));
+  } else {
+    for (const group of data.groups) {
+      const box = document.createElement("div");
+      box.className = "mail-group";
+      const title = document.createElement("b");
+      title.textContent = group.sender + " (" + group.count + ")";
+      const line = document.createElement("p");
+      line.className = "hint";
+      line.textContent = group.email + " · " + group.messages.map((item) => item.subject).join(", ");
+      box.append(title, line);
+      groups.append(box);
+    }
+  }
+  const list = $("mail-list");
+  list.replaceChildren();
+  if (!(data.messages || []).length) {
+    list.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "읽지 않은 메일이 없습니다.",
+    }));
+  } else {
+    for (const item of data.messages) list.append(mailCard(item));
+  }
+}
+
+async function loadMail(forceSettings = false) {
+  const data = await api("/api/mail");
+  lastMailStamp = [data.unread, data.notice_id || 0, data.error || "", data.headline || ""].join("|");
+  renderMail(data, forceSettings);
+}
+
+$("mail-settings").onclick = () => {
+  fillMailSettings(state.mail || {}, true);
+  $("mail-settings-msg").textContent = "";
+  $("mail-dialog").showModal();
+};
+$("mail-close").onclick = () => $("mail-dialog").close();
+$("mail-save").onclick = async () => {
+  try {
+    $("mail-settings-msg").textContent = "저장하는 중...";
+    const data = await api("/api/mail/settings", { method: "POST", body: mailForm() });
+    $("mail-password").value = "";
+    mailSettingsFilled = false;
+    renderMail(data, true);
+    $("mail-settings-msg").textContent = data.has_password
+      ? "설정을 저장하고 메일을 확인했습니다."
+      : "메일 주소를 저장했습니다. 웹메일 비밀번호를 입력하세요.";
+    applyIdleStatus();
+    if (data.has_password && !data.error) $("mail-dialog").close();
+  } catch (error) {
+    $("mail-settings-msg").textContent = error.message;
+  }
+};
+$("mail-test").onclick = async () => {
+  try {
+    $("mail-settings-msg").textContent = "연결하는 중...";
+    const data = await api("/api/mail/test", { method: "POST", body: mailForm() });
+    $("mail-settings-msg").textContent = data.message;
+  } catch (error) {
+    $("mail-settings-msg").textContent = error.message;
+  }
+};
+$("mail-refresh").onclick = async () => {
+  try {
+    setStatus("메일을 확인하는 중...");
+    renderMail(await api("/api/mail/refresh", { method: "POST", body: {} }));
+    applyIdleStatus();
+  } catch (error) {
+    setStatus(error.message);
+  }
+};
+async function markMailRead(uid) {
+  try {
+    setStatus("읽음 처리 중...");
+    openMailUids.delete(uid);
+    renderMail(await api("/api/mail/read", { method: "POST", body: { uid } }));
+    setStatus("읽음 처리했습니다.");
+    applyIdleStatus();
+  } catch (error) {
+    setStatus(error.message);
+    await showAlert(error.message, { kind: "error", title: "읽음 처리 실패" });
+  }
+}
+
 $("add-connection").onclick = () => openDialog(null, "target");
 $("edit-script-store").onclick = () => openDialog(state.script_store, "script");
 $("close-dialog").onclick = () => $("dialog").close();
@@ -634,7 +1729,10 @@ $("reconnect-all").onclick = async () => {
 };
 $("reconnect-one").onclick = async () => {
   const ids = state.selected_ids || [];
-  if (!ids.length) return alert("다시 연결할 데이터베이스를 선택하세요.");
+  if (!ids.length) {
+    await showAlert("다시 연결할 데이터베이스를 선택하세요.");
+    return;
+  }
   await api("/api/reconnect", { method: "POST", body: { ids } });
   await refresh();
 };
@@ -665,17 +1763,38 @@ $("test-connection").onclick = async () => {
   }
 };
 $("sample").onclick = async () => {
-  if ($("script").value.trim() && !confirm("편집 중인 스크립트를 예제로 바꿀까요?")) return;
+  if ($("script").value.trim() && !await showConfirm("편집 중인 스크립트를 예제로 바꿀까요?", { title: "예제 불러오기" })) return;
   const data = await api("/api/sample");
   $("script").value = data.script;
+};
+$("clear-script").onclick = async () => {
+  if (!$("script").value) return;
+  if ($("script").value.trim() && !await showConfirm("스크립트 영역의 내용을 지울까요?", { title: "스크립트 지우기", danger: true, ok: "지우기" })) return;
+  $("script").value = "";
+  $("script").focus();
 };
 $("open-file").onclick = () => $("file").click();
 $("file").onchange = async () => {
   const file = $("file").files[0];
   if (!file) return;
-  $("script").value = await file.text();
+  $("script").value = await readSqlFile(file);
   $("file").value = "";
 };
+async function readSqlFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(bytes.subarray(3));
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (_error) {
+    try {
+      return new TextDecoder("euc-kr").decode(bytes);
+    } catch (_fallback) {
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+  }
+}
 $("save-file").onclick = () => {
   const blob = new Blob([$("script").value], { type: "text/plain;charset=utf-8" });
   const link = document.createElement("a");
@@ -714,8 +1833,10 @@ async function runScript(confirmRisks) {
     body: {
       connection_ids: chosenIds(),
       script: $("script").value,
+      reason: $("reason").value,
       commit: $("commit-flag").checked,
       stop_on_error: $("stop-flag").checked,
+      save_history: $("history-flag").checked,
       confirm_risks: confirmRisks,
     },
   });
@@ -732,7 +1853,7 @@ $("execute").onclick = async () => {
     if (data.need_confirm) {
       const preview = data.risks.slice(0, 10).join("\n");
       const extra = data.risks.length > 10 ? `\n... 외 ${data.risks.length - 10}건` : "";
-      if (!confirm("삭제이거나 조건 없는 변경이 있습니다.\n실행할까요?\n\n" + preview + extra)) {
+      if (!await showConfirm("삭제이거나 조건 없는 변경이 있습니다.\n실행할까요?\n\n" + preview + extra, { title: "실행 확인", danger: true, ok: "실행" })) {
         addLog("실행을 취소했습니다.", "warn");
         return;
       }
@@ -758,24 +1879,30 @@ $("cancel").onclick = async () => {
   setStatus("중지 요청됨...");
 };
 $("commit").onclick = async () => {
-  if (!chosenIds().length) return alert("커밋할 데이터베이스를 선택하세요.");
-  if (!confirm("선택한 연결의 데이터 변경을 확정할까요?\nDDL은 이미 반영되어 있고, 데이터 변경만 확정됩니다.")) return;
+  if (!chosenIds().length) {
+    await showAlert("커밋할 데이터베이스를 선택하세요.");
+    return;
+  }
+  if (!await showConfirm("선택한 연결의 데이터 변경을 확정할까요?\nDDL은 이미 반영되어 있고, 데이터 변경만 확정됩니다.", { title: "커밋" })) return;
   try {
     const data = await api("/api/script/commit", { method: "POST", body: { connection_ids: chosenIds() } });
     addLog(data.message, "ok");
     setStatus(data.message);
-  } catch (error) { alert(error.message); }
+  } catch (error) { await showAlert(error.message, { kind: "error", title: "커밋 실패" }); }
 };
 $("rollback").onclick = async () => {
-  if (!chosenIds().length) return alert("롤백할 데이터베이스를 선택하세요.");
-  if (!confirm("선택한 연결에서 아직 커밋하지 않은 데이터 변경을 취소할까요?")) return;
+  if (!chosenIds().length) {
+    await showAlert("롤백할 데이터베이스를 선택하세요.");
+    return;
+  }
+  if (!await showConfirm("선택한 연결에서 아직 커밋하지 않은 데이터 변경을 취소할까요?", { title: "롤백", danger: true, ok: "롤백" })) return;
   try {
     const data = await api("/api/script/rollback", { method: "POST", body: { connection_ids: chosenIds() } });
     addLog(data.message, "warn");
     setStatus(data.message);
-  } catch (error) { alert(error.message); }
+  } catch (error) { await showAlert(error.message, { kind: "error", title: "롤백 실패" }); }
 };
-document.querySelectorAll(".tabs button").forEach((button) => {
+document.querySelectorAll(".log-bar .tabs button").forEach((button) => {
   button.onclick = () => showTab(button.dataset.tab);
 });
 $("clear-log").onclick = () => {
@@ -783,6 +1910,1153 @@ $("clear-log").onclick = () => {
   setStatus("실행 로그를 지웠습니다.");
 };
 
+function gapState() { return state.gap || {}; }
+
+function renderGap() {
+  const gap = gapState();
+  if ($("gap-path") && document.activeElement !== $("gap-path") && gap.path) {
+    $("gap-path").value = gap.path;
+    $("gap-path").title = gap.path;
+  }
+  const summary = $("gap-model-summary");
+  if (summary) {
+    const fileName = (gap.path || "").split(/[\\/]/).filter(Boolean).pop() || "";
+    summary.textContent = gap.loaded
+      ? `${gap.name || fileName || "모델"} · 테이블 ${gap.table_count} · 컬럼 ${gap.column_count}`
+      : (fileName ? `${fileName} · 모델 읽기를 누르세요.` : "아직 모델을 읽지 않았습니다.");
+  }
+  const cards = $("gap-cards");
+  if (!cards) return;
+  cards.replaceChildren();
+  if (!state.connections.length) {
+    cards.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "저장된 DB가 없습니다. 오브젝트 변경 관리에서 연결을 추가하면 여기에 자동으로 나타납니다.",
+    }));
+  }
+  for (const item of state.connections) {
+    const card = document.createElement("div");
+    const selected = gap.connection_id === item.id;
+    card.className = "card" + (selected ? " selected" : "");
+    card.dataset.id = item.id;
+    const main = document.createElement("div");
+    main.className = "card-main";
+    const box = document.createElement("input");
+    box.type = "radio";
+    box.name = "gap-db";
+    box.checked = selected;
+    box.disabled = item.status !== "connected";
+    box.title = item.status === "connected" ? "이 데이터베이스와 비교" : "연결된 뒤에 선택할 수 있습니다.";
+    box.onclick = (event) => event.stopPropagation();
+    box.onchange = () => { if (box.checked) selectGapDb(item.id); };
+    const body = document.createElement("div");
+    const title = document.createElement("b");
+    title.append(item.name);
+    if (item.record_history) {
+      const tag = document.createElement("span");
+      tag.className = "history-tag";
+      tag.textContent = "변경이력";
+      title.append(" ", tag);
+    }
+    const line = document.createElement("small");
+    line.textContent = item.target;
+    const stateLine = document.createElement("small");
+    stateLine.className = "dot " + item.status;
+    stateLine.textContent = "● " + statusNames[item.status];
+    body.append(title, line, stateLine);
+    if (item.message) {
+      const message = document.createElement("small");
+      message.className = "error";
+      message.title = item.message;
+      message.textContent = item.message;
+      body.append(message);
+    }
+    main.append(box, body);
+    card.append(main);
+    card.onclick = () => {
+      if (item.status !== "connected") return;
+      selectGapDb(item.id);
+    };
+    cards.append(card);
+  }
+  const chosen = state.connections.find((item) => item.id === gap.connection_id);
+  $("gap-active-name").textContent = chosen ? chosen.name : "DB를 하나 선택하세요";
+  const detail = $("gap-active-detail");
+  if (!chosen) {
+    detail.className = "hint";
+    detail.textContent = "오브젝트 변경 관리와 같은 DB 목록입니다. 비교할 데이터베이스를 하나 고르세요.";
+  } else {
+    detail.className = "hint";
+    detail.textContent = (chosen.info || chosen.target) + " 와 모델 차이를 분석합니다.";
+  }
+  $("gap-execute").disabled = state.running;
+  $("gap-cancel").disabled = !state.running;
+  $("gap-analyze").disabled = state.running;
+}
+
+async function selectGapDb(id) {
+  try {
+    const data = await api("/api/gap/select", { method: "POST", body: { connection_id: id } });
+    state.gap = { ...gapState(), ...data };
+    renderGap();
+    syncGapHistoryFlag();
+  } catch (error) {
+    await showAlert(error.message, { kind: "error", title: "DB 선택 실패" });
+    await refresh(false);
+  }
+}
+
+function showGapTab(name) {
+  document.querySelectorAll("[data-gap-tab]").forEach((button) => {
+    button.classList.toggle("on", button.dataset.gapTab === name);
+  });
+  $("gap-diff-wrap").classList.toggle("hidden", name !== "diff");
+  $("gap-ddl").classList.toggle("hidden", name !== "ddl");
+  $("gap-log").classList.toggle("hidden", name !== "log");
+}
+
+function categoryOf(item) {
+  return item.category || {
+    missing_table: "table_add",
+    extra_table: "table_delete",
+    missing_column: "column_add",
+    extra_column: "column_delete",
+  }[item.kind] || "column_change";
+}
+
+function gapDdlForFilters() {
+  const parts = [];
+  for (const item of gapItems) {
+    if (!gapFilters.has(categoryOf(item))) continue;
+    const sql = (item.ddl || item.db_ddl || "").trim();
+    if (sql) parts.push(sql);
+  }
+  return parts.length ? parts.join("\n\n") + "\n" : "";
+}
+
+function showGapProgress(text) {
+  $("gap-progress-text").textContent = text || "ERwin 모델에서 테이블과 컬럼 정보를 추출합니다.";
+  if (!$("gap-progress").open) $("gap-progress").showModal();
+}
+
+function hideGapProgress() {
+  if ($("gap-progress").open) $("gap-progress").close();
+}
+
+function renderGapReport(data) {
+  if (data) gapReport = data;
+  if (!gapReport) return;
+  gapItems = gapReport.items || [];
+  $("gap-ddl").value = gapDdlForFilters();
+  const stats = $("gap-stats");
+  stats.replaceChildren();
+  const summary = gapReport.summary || {};
+  const categories = summary.categories || {};
+  const bits = [
+    ["모델 테이블", gapReport.model && gapReport.model.table_count],
+    ["DB 테이블", gapReport.db_table_count],
+    ["반영 항목", summary.apply],
+    ["전체 차이", summary.total],
+  ];
+  for (const [label, value] of bits) {
+    const box = document.createElement("span");
+    box.className = "gap-stat";
+    const strong = document.createElement("strong");
+    strong.textContent = String(value ?? 0);
+    box.append(label + " ", strong);
+    stats.append(box);
+  }
+  const filters = $("gap-filters");
+  filters.replaceChildren();
+  const allBtn = document.createElement("button");
+  allBtn.type = "button";
+  allBtn.className = "gap-filter" + (gapFilters.size === GAP_FILTERS.length ? " on" : "");
+  allBtn.textContent = "전체";
+  allBtn.onclick = () => {
+    gapFilters = new Set(GAP_FILTERS.map((item) => item.id));
+    renderGapReport();
+  };
+  filters.append(allBtn);
+  for (const filter of GAP_FILTERS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "gap-filter" + (gapFilters.has(filter.id) ? " on" : "");
+    const count = document.createElement("strong");
+    count.textContent = String(categories[filter.id] || 0);
+    button.append(filter.label + " ", count);
+    button.onclick = () => {
+      if (gapFilters.has(filter.id)) {
+        if (gapFilters.size > 1) gapFilters.delete(filter.id);
+      } else {
+        gapFilters.add(filter.id);
+      }
+      renderGapReport();
+    };
+    filters.append(button);
+  }
+  const wrap = $("gap-diff-wrap");
+  wrap.replaceChildren();
+  const rows = gapItems.filter((item) => gapFilters.has(categoryOf(item)));
+  if (!gapItems.length) {
+    wrap.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "모델과 DB의 테이블·컬럼이 같습니다.",
+    }));
+    return;
+  }
+  if (!rows.length) {
+    wrap.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "선택한 구분에 해당하는 차이가 없습니다. 필터를 바꿔 보세요.",
+    }));
+    return;
+  }
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const title of ["구분", "테이블", "컬럼", "모델", "DB", "설명", "반영"]) {
+    const th = document.createElement("th");
+    th.textContent = title;
+    headRow.append(th);
+  }
+  head.append(headRow);
+  table.append(head);
+  const body = document.createElement("tbody");
+  for (const item of rows) {
+    const tr = document.createElement("tr");
+    const kind = document.createElement("td");
+    const tag = document.createElement("span");
+    tag.className = "kind-tag " + categoryOf(item);
+    tag.textContent = item.kind_label || item.kind;
+    kind.append(tag);
+    tr.append(kind);
+    for (const value of [item.table, item.column, item.model, item.database, item.detail]) {
+      const td = document.createElement("td");
+      td.textContent = value || "";
+      tr.append(td);
+    }
+    const act = document.createElement("td");
+    const box = document.createElement("div");
+    box.className = "gap-act";
+    const dbBtn = document.createElement("button");
+    dbBtn.type = "button";
+    dbBtn.className = "to-db";
+    dbBtn.textContent = "DB에 반영";
+    dbBtn.disabled = !(item.db_ddl || "").trim();
+    dbBtn.title = dbBtn.disabled ? "이 항목은 DB에 반영할 DDL이 없습니다." : "모델을 기준으로 DB를 맞춥니다.";
+    dbBtn.onclick = () => applyGapItem("db", item);
+    const modelBtn = document.createElement("button");
+    modelBtn.type = "button";
+    modelBtn.className = "to-model";
+    modelBtn.textContent = "모델에 반영";
+    modelBtn.title = "DB를 기준으로 모델 파일을 맞춥니다.";
+    modelBtn.onclick = () => applyGapItem("model", item);
+    box.append(dbBtn, modelBtn);
+    act.append(box);
+    tr.append(act);
+    body.append(tr);
+  }
+  table.append(body);
+  wrap.append(table);
+}
+
+async function loadGapModel(path) {
+  showGapProgress("ERwin 모델에서 테이블과 컬럼 정보를 추출합니다.");
+  setStatus("모델을 읽는 중...");
+  try {
+    const data = await api("/api/gap/load", { method: "POST", body: { path } });
+    state.gap = { ...gapState(), ...data };
+    renderGap();
+    setStatus(`모델 ${data.table_count}개 테이블, 컬럼 ${data.column_count}개를 읽었습니다.`);
+    return data;
+  } finally {
+    hideGapProgress();
+  }
+}
+
+$("gap-progress").addEventListener("cancel", (event) => event.preventDefault());
+
+function copyGapFilter(data) {
+  const source = data || (gapState().filter || {});
+  return {
+    subject_areas: [...(source.subject_areas || [])],
+    table_patterns: (source.table_patterns || []).map((item) => ({ match: item.match, value: item.value, end: item.end || "" })),
+    exclude_pk_order: source.exclude_pk_order !== false,
+  };
+}
+
+function renderGapFilterDraft() {
+  const saList = $("gap-sa-list");
+  saList.replaceChildren();
+  if (!gapFilterDraft.subject_areas.length) {
+    saList.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "제외할 주제영역이 없습니다." }));
+  }
+  gapFilterDraft.subject_areas.forEach((name, index) => {
+    const row = document.createElement("div");
+    row.className = "filter-item";
+    row.append(Object.assign(document.createElement("span"), { textContent: name }));
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "삭제";
+    button.onclick = () => {
+      gapFilterDraft.subject_areas.splice(index, 1);
+      renderGapFilterDraft();
+    };
+    row.append(button);
+    saList.append(row);
+  });
+  const patternList = $("gap-pattern-list");
+  patternList.replaceChildren();
+  if (!gapFilterDraft.table_patterns.length) {
+    patternList.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "제외할 테이블 이름 규칙이 없습니다." }));
+  }
+  gapFilterDraft.table_patterns.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "filter-item";
+    const label = item.match === "prefix_suffix"
+      ? (GAP_MATCH_LABELS.prefix_suffix + " · " + item.value + " … " + (item.end || ""))
+      : ((GAP_MATCH_LABELS[item.match] || item.match) + " · " + item.value);
+    row.append(Object.assign(document.createElement("span"), { textContent: label }));
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "삭제";
+    button.onclick = () => {
+      gapFilterDraft.table_patterns.splice(index, 1);
+      renderGapFilterDraft();
+    };
+    row.append(button);
+    patternList.append(row);
+  });
+  $("gap-pk-order").value = gapFilterDraft.exclude_pk_order ? "exclude" : "include";
+}
+
+$("gap-settings").onclick = () => {
+  gapFilterDraft = copyGapFilter();
+  renderGapFilterDraft();
+  $("gap-settings-msg").textContent = "";
+  $("gap-settings-dialog").showModal();
+};
+$("gap-settings-close").onclick = () => $("gap-settings-dialog").close();
+$("gap-sa-add").onclick = () => {
+  const value = $("gap-sa-input").value.trim();
+  if (!value) return;
+  if (gapFilterDraft.subject_areas.some((item) => item.casefold ? item.casefold() === value.casefold() : item.toLowerCase() === value.toLowerCase())) return;
+  gapFilterDraft.subject_areas.push(value);
+  $("gap-sa-input").value = "";
+  renderGapFilterDraft();
+};
+function syncGapPatternInputs() {
+  const both = $("gap-pattern-match").value === "prefix_suffix";
+  $("gap-pattern-add").parentElement.classList.toggle("both", both);
+  $("gap-pattern-value").placeholder = both ? "예: VSQL" : "예: _PRE";
+}
+
+$("gap-pattern-match").onchange = syncGapPatternInputs;
+$("gap-pk-order").onchange = () => {
+  gapFilterDraft.exclude_pk_order = $("gap-pk-order").value === "exclude";
+};
+syncGapPatternInputs();
+
+$("gap-pattern-add").onclick = () => {
+  const value = $("gap-pattern-value").value.trim();
+  if (!value) return;
+  const match = $("gap-pattern-match").value;
+  const end = $("gap-pattern-end").value.trim();
+  if (match === "prefix_suffix" && !end) return;
+  const same = gapFilterDraft.table_patterns.some((item) =>
+    item.match === match
+    && item.value.toLowerCase() === value.toLowerCase()
+    && (item.end || "").toLowerCase() === end.toLowerCase()
+  );
+  if (same) return;
+  gapFilterDraft.table_patterns.push(match === "prefix_suffix" ? { match, value, end } : { match, value });
+  $("gap-pattern-value").value = "";
+  $("gap-pattern-end").value = "";
+  renderGapFilterDraft();
+};
+$("gap-settings-save").onclick = async () => {
+  try {
+    $("gap-settings-msg").textContent = "저장하는 중...";
+    const data = await api("/api/gap/settings", {
+      method: "POST",
+      body: {
+        subject_areas: gapFilterDraft.subject_areas,
+        table_patterns: gapFilterDraft.table_patterns,
+        exclude_pk_order: gapFilterDraft.exclude_pk_order,
+      },
+    });
+    state.gap = { ...gapState(), ...data };
+    $("gap-settings-msg").textContent = data.message || "저장했습니다.";
+    setStatus(data.message || "추출 제외 설정을 저장했습니다.");
+  } catch (error) {
+    $("gap-settings-msg").textContent = error.message;
+  }
+};
+$("gap-settings-reset").onclick = async () => {
+  try {
+    $("gap-settings-msg").textContent = "기본값으로 되돌리는 중...";
+    const data = await api("/api/gap/settings", { method: "POST", body: { reset: true } });
+    state.gap = { ...gapState(), ...data };
+    gapFilterDraft = copyGapFilter(data.filter);
+    renderGapFilterDraft();
+    $("gap-settings-msg").textContent = data.message || "기본값으로 되돌렸습니다.";
+    setStatus(data.message || "기본 제외 대상으로 되돌렸습니다.");
+  } catch (error) {
+    $("gap-settings-msg").textContent = error.message;
+  }
+};
+$("gap-sa-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); $("gap-sa-add").click(); }
+});
+$("gap-pattern-value").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); $("gap-pattern-add").click(); }
+});
+
+$("gap-browse").onclick = async () => {
+  try {
+    setStatus("모델 파일을 선택하세요...");
+    const data = await api("/api/gap/browse", { method: "POST", body: {} });
+    if (data.cancelled) {
+      setStatus("파일 선택을 취소했습니다.");
+      return;
+    }
+    if (data.path) $("gap-path").value = data.path;
+    state.gap = { ...gapState(), ...data, loaded: false };
+    renderGap();
+    await loadGapModel(data.path || $("gap-path").value);
+  } catch (error) {
+    hideGapProgress();
+    setStatus(error.message);
+    await showAlert(error.message, { kind: "error", title: "모델 선택 실패" });
+  }
+};
+$("gap-load").onclick = async () => {
+  try {
+    await loadGapModel($("gap-path").value);
+  } catch (error) {
+    setStatus(error.message);
+    await showAlert(error.message, { kind: "error", title: "모델 읽기 실패" });
+  }
+};
+$("gap-reconnect").onclick = async () => {
+  await api("/api/reconnect", { method: "POST", body: {} });
+  setStatus("저장된 연결에 접속하는 중...");
+  await refresh();
+};
+async function applyGapItem(target, item) {
+  const connectionId = gapState().connection_id;
+  if (target === "db" && !connectionId) {
+    await showAlert("실행할 데이터베이스를 하나 선택하세요.");
+    return;
+  }
+  const ddl = (item.db_ddl || item.ddl || "").trim();
+  if (target === "db") {
+    if (!ddl) {
+      await showAlert("이 항목은 DB에 반영할 DDL이 없습니다.");
+      return;
+    }
+    if (!await showConfirm("선택한 항목을 DB에 반영할까요?\nCREATE/ALTER/DROP은 즉시 반영되며 롤백되지 않습니다.\n\n" + ddl, { title: "DB에 반영", danger: true, ok: "반영" })) return;
+  } else if (!await showConfirm("선택한 항목을 모델 파일에 반영할까요?\n모델이 DB 쪽으로 맞춰집니다.", { title: "모델에 반영" })) {
+    return;
+  }
+  const body = {
+    index: item.index,
+    kind: item.kind,
+    table: item.table,
+    column: item.column,
+    reason: $("gap-reason").value,
+    commit: $("gap-commit-flag").checked,
+    stop_on_error: $("gap-stop-flag").checked,
+    save_history: $("gap-history-flag").checked,
+    confirm_risks: false,
+  };
+  showGapProgress(target === "db" ? "DB에 반영하는 중..." : "모델에 반영하는 중...");
+  setStatus(target === "db" ? "DB에 반영하는 중..." : "모델에 반영하는 중...");
+  try {
+    let data = await api(target === "db" ? "/api/gap/apply-db" : "/api/gap/apply-model", {
+      method: "POST",
+      body,
+    });
+    if (data.need_confirm) {
+      if (!await showConfirm("주의가 필요한 문장이 있습니다.\n실행할까요?\n\n" + (data.risks || []).slice(0, 10).join("\n"), { title: "실행 확인", danger: true, ok: "실행" })) {
+        setStatus("반영을 취소했습니다.");
+        return;
+      }
+      data = await api("/api/gap/apply-db", { method: "POST", body: { ...body, confirm_risks: true } });
+    }
+    if (data.report) {
+      renderGapReport(data.report);
+      state.gap = { ...gapState(), ...(data.report.model || {}), loaded: true };
+      renderGap();
+    }
+    if (target === "db") {
+      const stats = data.stats || {};
+      if (stats.fail) {
+        showGapTab("log");
+        if (data.summary) addLog(data.summary, "info");
+        for (const line of data.logs || []) addLog(line.message, line.tag);
+        setStatus(`DB 반영에 실패했습니다. 성공 ${stats.ok || 0}건, 실패 ${stats.fail}건.`);
+      } else {
+        showGapTab("diff");
+        setStatus("DB에 반영했습니다.");
+      }
+    } else {
+      showGapTab("diff");
+      setStatus(data.message || "모델에 반영했습니다.");
+    }
+  } catch (error) {
+    setStatus(error.message);
+    await showAlert(error.message, { kind: "error", title: "반영 실패" });
+  } finally {
+    hideGapProgress();
+    await refresh(false);
+  }
+}
+
+$("gap-analyze").onclick = async () => {
+  try {
+    setStatus("갭 분석 중...");
+    const data = await api("/api/gap/analyze", {
+      method: "POST",
+      body: { connection_id: gapState().connection_id },
+    });
+    renderGapReport(data);
+    showGapTab("diff");
+    const apply = (data.summary && data.summary.apply) || 0;
+    setStatus(apply ? `차이 ${data.summary.total}건 중 DB 반영 대상 ${apply}건입니다.` : "모델과 DB가 일치합니다.");
+  } catch (error) {
+    setStatus(error.message);
+    await showAlert(error.message, { kind: "error", title: "갭 분석 실패" });
+  }
+};
+$("gap-inspect").onclick = async () => {
+  showGapTab("log");
+  clearLog();
+  try {
+    const data = await api("/api/script/inspect", { method: "POST", body: { script: $("gap-ddl").value } });
+    if (data.empty && !data.statements.length) {
+      addLog("실행할 문장이 없습니다.", "warn");
+      return;
+    }
+    addLog(data.summary, "info");
+    for (const item of data.statements) {
+      addLog(`[${item.index}] ${item.label}`, item.mode === "skip" ? "warn" : "ok");
+      if (item.preview) addLog(item.preview, "sql");
+    }
+  } catch (error) {
+    addLog(error.message, "err");
+  }
+};
+$("gap-execute").onclick = async () => {
+  const connectionId = gapState().connection_id;
+  if (!connectionId) {
+    await showAlert("실행할 데이터베이스를 하나 선택하세요.");
+    return;
+  }
+  if (!$("gap-ddl").value.trim()) {
+    await showAlert("실행할 DDL이 없습니다. 먼저 갭 분석을 하세요.");
+    return;
+  }
+  if (!await showConfirm("선택한 구분에 해당하는 DDL을 실행할까요?\nCREATE/ALTER/DROP은 즉시 반영되며 롤백되지 않습니다.", { title: "DDL 실행", danger: true, ok: "실행" })) return;
+  showGapTab("log");
+  clearLog();
+  setStatus("실행 중...");
+  state.running = true;
+  render();
+  try {
+    let data = await api("/api/script/execute", {
+      method: "POST",
+      body: {
+        connection_ids: [connectionId],
+        script: $("gap-ddl").value,
+        reason: $("gap-reason").value,
+        commit: $("gap-commit-flag").checked,
+        stop_on_error: $("gap-stop-flag").checked,
+        save_history: $("gap-history-flag").checked,
+        confirm_risks: false,
+      },
+    });
+    if (data.need_confirm) {
+      if (!await showConfirm("주의가 필요한 문장이 있습니다.\n실행할까요?\n\n" + data.risks.slice(0, 10).join("\n"), { title: "실행 확인", danger: true, ok: "실행" })) {
+        addLog("실행을 취소했습니다.", "warn");
+        return;
+      }
+      data = await api("/api/script/execute", {
+        method: "POST",
+        body: {
+          connection_ids: [connectionId],
+          script: $("gap-ddl").value,
+          reason: $("gap-reason").value,
+          commit: $("gap-commit-flag").checked,
+          stop_on_error: $("gap-stop-flag").checked,
+          save_history: $("gap-history-flag").checked,
+          confirm_risks: true,
+        },
+      });
+    }
+    addLog(data.summary, "info");
+    for (const line of data.logs) addLog(line.message, line.tag);
+    const stats = data.stats || {};
+    if (stats.fail) setStatus(`실패가 있습니다. 성공 ${stats.ok || 0}건, 실패 ${stats.fail}건.`);
+    else setStatus(`완료되었습니다. 성공 ${stats.ok || 0}건.`);
+  } catch (error) {
+    addLog(error.message, "err");
+    setStatus(error.message);
+  } finally {
+    await refresh(false);
+  }
+};
+$("gap-cancel").onclick = async () => {
+  await api("/api/script/cancel", { method: "POST", body: {} });
+  setStatus("중지 요청됨...");
+};
+document.querySelectorAll("[data-gap-tab]").forEach((button) => {
+  button.onclick = () => showGapTab(button.dataset.gapTab);
+});
+
+function siteGroups() {
+  return state.site_groups || [];
+}
+
+const SITE_GROUP_TONES = [
+  ["#93c5fd", "#3b82f6", "rgba(37, 99, 235, 0.20)"],
+  ["#fcd34d", "#d97706", "rgba(217, 119, 6, 0.18)"],
+  ["#86efac", "#16a34a", "rgba(22, 163, 74, 0.16)"],
+  ["#5eead4", "#0d9488", "rgba(13, 148, 136, 0.16)"],
+  ["#c4b5fd", "#7c3aed", "rgba(124, 58, 237, 0.18)"],
+  ["#fdba74", "#ea580c", "rgba(234, 88, 12, 0.16)"],
+  ["#f9a8d4", "#db2777", "rgba(219, 39, 119, 0.16)"],
+  ["#67e8f9", "#0891b2", "rgba(8, 145, 178, 0.16)"],
+];
+const UNGROUPED_TONE = ["#94a3b8", "#64748b", "rgba(100, 116, 139, 0.14)"];
+const SITE_GROUP_TONE_BY_NAME = { "개발": 0, "테스트": 1, "운영": 2 };
+
+function hashText(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+}
+
+function siteGroupTone(group) {
+  if (!group || !group.id) return UNGROUPED_TONE;
+  const named = SITE_GROUP_TONE_BY_NAME[group.name];
+  const extra = SITE_GROUP_TONES.length - 3;
+  const index = Number.isInteger(named)
+    ? named
+    : extra > 0 ? 3 + (hashText(group.id) % extra) : hashText(group.id) % SITE_GROUP_TONES.length;
+  return SITE_GROUP_TONES[index];
+}
+
+function applyGroupTone(el, group) {
+  const [fg, border, bg] = siteGroupTone(group);
+  el.style.setProperty("--group-fg", fg);
+  el.style.setProperty("--group-border", border);
+  el.style.setProperty("--group-bg", bg);
+}
+
+function renderSites() {
+  if (siteDragging || groupDragging) return;
+  renderSiteGroupChips();
+  renderSiteGroupSelect();
+  renderSiteGroupFilters();
+  const host = $("site-list");
+  if (!host) return;
+  const groups = siteGroups();
+  const items = state.sites || [];
+  const visible = items.filter((item) => {
+    if (siteGroupFilter === "all") return true;
+    if (siteGroupFilter === "none") return !item.group_id;
+    return item.group_id === siteGroupFilter;
+  });
+  host.replaceChildren();
+  if (!items.length) {
+    host.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "저장된 사이트가 없습니다. 위에서 사이트명과 URL을 입력하고 저장하세요.",
+    }));
+    return;
+  }
+  if (!visible.length && siteGroupFilter !== "all") {
+    host.append(Object.assign(document.createElement("p"), {
+      className: "hint",
+      textContent: "이 그룹에 해당하는 사이트가 없습니다.",
+    }));
+    return;
+  }
+  const sections = [];
+  for (const group of groups) {
+    const grouped = visible.filter((item) => item.group_id === group.id);
+    if (grouped.length || siteGroupFilter === "all" || siteGroupFilter === group.id) {
+      sections.push({ title: group.name, groupId: group.id, items: grouped });
+    }
+  }
+  const ungrouped = visible.filter((item) => !item.group_id);
+  if (ungrouped.length || siteGroupFilter === "none" || (siteGroupFilter === "all" && !groups.length)) {
+    sections.push({ title: groups.length ? "미지정" : "", groupId: "", items: ungrouped });
+  }
+  for (const section of sections) {
+    const block = document.createElement("div");
+    block.className = "site-group-block";
+    const group = groups.find((entry) => entry.id === section.groupId);
+    applyGroupTone(block, group || null);
+    bindGroupDrop(block, section.groupId);
+    if (section.title) {
+      const heading = document.createElement("h2");
+      heading.append(Object.assign(document.createElement("span"), { className: "site-group-swatch" }), section.title);
+      if (group) {
+        heading.title = "드래그하면 그룹 순서를 바꿀 수 있습니다.";
+        bindGroupBlockDrag(heading, block, group);
+      }
+      block.append(heading);
+    }
+    const list = document.createElement("div");
+    list.className = "site-list";
+    for (const item of section.items) list.append(siteCard(item, groups));
+    block.append(list);
+    host.append(block);
+  }
+}
+
+function dropAfter(event, card) {
+  const rect = card.getBoundingClientRect();
+  return event.clientX > rect.left + rect.width / 2;
+}
+
+function dropGroupAfter(event, el) {
+  const rect = el.getBoundingClientRect();
+  return event.clientY > rect.top + rect.height / 2;
+}
+
+function dropChipAfter(event, el) {
+  const rect = el.getBoundingClientRect();
+  return event.clientX > rect.left + rect.width / 2;
+}
+
+function clearGroupDragMarks() {
+  document.querySelectorAll(".site-group-block.dragging, .site-group-block.group-before, .site-group-block.group-after, .site-group-chip.dragging, .site-group-chip.drag-over, .site-group-chip.drag-after").forEach((el) => {
+    el.classList.remove("dragging", "group-before", "group-after", "drag-over", "drag-after");
+  });
+}
+
+function bindGroupChipDrag(chip, group) {
+  chip.draggable = true;
+  chip.addEventListener("dragstart", (event) => {
+    if (event.target.closest("button")) {
+      event.preventDefault();
+      return;
+    }
+    groupDragId = group.id;
+    groupDidDrag = false;
+    groupDragging = true;
+    event.dataTransfer.setData("text/plain", group.id);
+    event.dataTransfer.effectAllowed = "move";
+    chip.classList.add("dragging");
+  });
+  chip.addEventListener("dragend", () => {
+    clearGroupDragMarks();
+    groupDragging = false;
+    groupDragId = null;
+  });
+  chip.addEventListener("dragover", (event) => {
+    if (!groupDragId || groupDragId === group.id) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    const after = dropChipAfter(event, chip);
+    chip.classList.add("drag-over");
+    chip.classList.toggle("drag-after", after);
+  });
+  chip.addEventListener("dragleave", () => chip.classList.remove("drag-over", "drag-after"));
+  chip.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    chip.classList.remove("drag-over", "drag-after");
+    const dragged = groupDragId;
+    if (!dragged || dragged === group.id) return;
+    groupDidDrag = true;
+    await moveGroup(dragged, group.id, dropChipAfter(event, chip));
+  });
+}
+
+function bindGroupBlockDrag(heading, block, group) {
+  heading.draggable = true;
+  heading.addEventListener("dragstart", (event) => {
+    groupDragId = group.id;
+    groupDidDrag = false;
+    groupDragging = true;
+    event.dataTransfer.setData("text/plain", group.id);
+    event.dataTransfer.effectAllowed = "move";
+    block.classList.add("dragging");
+  });
+  heading.addEventListener("dragend", () => {
+    clearGroupDragMarks();
+    groupDragging = false;
+    groupDragId = null;
+  });
+}
+
+function bindGroupDrop(block, groupId) {
+  block.addEventListener("dragover", (event) => {
+    if (groupDragId && groupId && groupDragId !== groupId) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const after = dropGroupAfter(event, block);
+      block.classList.toggle("group-before", !after);
+      block.classList.toggle("group-after", after);
+      return;
+    }
+    if (!siteDragId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (!event.target.closest(".site-card")) block.classList.add("drag-over");
+  });
+  block.addEventListener("dragleave", (event) => {
+    if (!block.contains(event.relatedTarget)) {
+      block.classList.remove("drag-over", "group-before", "group-after");
+    }
+  });
+  block.addEventListener("drop", async (event) => {
+    block.classList.remove("drag-over", "group-before", "group-after");
+    if (groupDragId && groupId) {
+      event.preventDefault();
+      event.stopPropagation();
+      const dragged = groupDragId;
+      if (dragged === groupId) return;
+      groupDidDrag = true;
+      await moveGroup(dragged, groupId, dropGroupAfter(event, block));
+      return;
+    }
+    if (event.target.closest(".site-card")) return;
+    event.preventDefault();
+    const dragged = siteDragId;
+    if (!dragged) return;
+    siteDidDrag = true;
+    await moveSite(dragged, null, true, groupId);
+  });
+}
+
+function bindSiteDrag(card, item) {
+  card.draggable = true;
+  card.addEventListener("dragstart", (event) => {
+    if (event.target.closest("button")) {
+      event.preventDefault();
+      return;
+    }
+    siteDragId = item.id;
+    siteDidDrag = false;
+    siteDragging = true;
+    event.dataTransfer.setData("text/plain", item.id);
+    event.dataTransfer.effectAllowed = "move";
+    card.classList.add("dragging");
+  });
+  card.addEventListener("dragend", () => {
+    card.classList.remove("dragging", "drag-over", "drag-after");
+    document.querySelectorAll(".site-card.drag-over, .site-group-block.drag-over").forEach((el) => {
+      el.classList.remove("drag-over", "drag-after");
+    });
+    siteDragging = false;
+    siteDragId = null;
+  });
+  card.addEventListener("dragover", (event) => {
+    if (groupDragId) return;
+    if (!siteDragId || siteDragId === item.id) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    const after = dropAfter(event, card);
+    card.classList.add("drag-over");
+    card.classList.toggle("drag-after", after);
+  });
+  card.addEventListener("dragleave", () => card.classList.remove("drag-over", "drag-after"));
+  card.addEventListener("drop", async (event) => {
+    if (groupDragId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    card.classList.remove("drag-over", "drag-after");
+    const dragged = siteDragId;
+    if (!dragged || dragged === item.id) return;
+    siteDidDrag = true;
+    await moveSite(dragged, item.id, dropAfter(event, card), item.group_id || "");
+  });
+  card.addEventListener("click", (event) => {
+    if (!siteDidDrag) return;
+    event.preventDefault();
+    siteDidDrag = false;
+  });
+}
+
+async function moveSite(movedId, targetId, after, groupId) {
+  const sites = (state.sites || []).map((item) => ({ ...item }));
+  const from = sites.findIndex((item) => item.id === movedId);
+  if (from < 0) return;
+  const moved = sites.splice(from, 1)[0];
+  moved.group_id = groupId || "";
+  let insertAt = sites.length;
+  if (targetId) {
+    insertAt = sites.findIndex((item) => item.id === targetId);
+    if (insertAt < 0) insertAt = sites.length;
+    else if (after) insertAt += 1;
+  }
+  sites.splice(insertAt, 0, moved);
+  state.sites = sites;
+  siteDragging = false;
+  renderSites();
+  try {
+    await api("/api/sites/reorder", {
+      method: "POST",
+      body: { ids: sites.map((item) => item.id), moved_id: movedId, group_id: moved.group_id },
+    });
+    setStatus("순서를 저장했습니다.");
+  } catch (error) {
+    await showAlert(error.message, { kind: "error", title: "순서 저장 실패" });
+    await refresh();
+  }
+}
+
+async function moveGroup(movedId, targetId, after) {
+  const groups = siteGroups().map((item) => ({ ...item }));
+  const from = groups.findIndex((item) => item.id === movedId);
+  if (from < 0) return;
+  const moved = groups.splice(from, 1)[0];
+  let insertAt = groups.length;
+  if (targetId) {
+    insertAt = groups.findIndex((item) => item.id === targetId);
+    if (insertAt < 0) insertAt = groups.length;
+    else if (after) insertAt += 1;
+  }
+  groups.splice(insertAt, 0, moved);
+  state.site_groups = groups;
+  groupDragging = false;
+  renderSites();
+  try {
+    await api("/api/site-groups/reorder", {
+      method: "POST",
+      body: { ids: groups.map((item) => item.id) },
+    });
+    setStatus("그룹 순서를 저장했습니다.");
+  } catch (error) {
+    await showAlert(error.message, { kind: "error", title: "그룹 순서 저장 실패" });
+    await refresh();
+  }
+}
+
+function siteCard(item, groups) {
+  const card = document.createElement("a");
+  card.className = "menu-card site-card";
+  card.href = item.url;
+  card.target = "_blank";
+  card.rel = "noopener noreferrer";
+  card.title = item.url + " · 드래그하면 순서를 바꿀 수 있습니다.";
+  const group = groups.find((entry) => entry.id === item.group_id);
+  applyGroupTone(card, group || null);
+  bindSiteDrag(card, item);
+  const head = document.createElement("div");
+  head.className = "site-card-head";
+  const title = document.createElement("b");
+  title.textContent = item.name;
+  const url = document.createElement("small");
+  url.textContent = item.url;
+  const actions = document.createElement("div");
+  actions.className = "row";
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.draggable = false;
+  edit.textContent = "수정";
+  edit.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    fillSiteForm(item);
+  };
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.draggable = false;
+  remove.textContent = "삭제";
+  remove.onclick = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!await showConfirm("'" + item.name + "' 사이트를 삭제할까요?", { title: "사이트 삭제", danger: true, ok: "삭제" })) return;
+    try {
+      await api("/api/sites/" + encodeURIComponent(item.id), { method: "DELETE" });
+      if ($("site-edit-id").value === item.id) clearSiteForm();
+      await refresh();
+    } catch (error) {
+      await showAlert(error.message, { kind: "error", title: "삭제 실패" });
+    }
+  };
+  actions.append(edit, remove);
+  head.append(title, actions);
+  card.append(head, url);
+  return card;
+}
+
+function renderSiteGroupChips() {
+  const host = $("site-group-chips");
+  if (!host) return;
+  host.replaceChildren();
+  for (const group of siteGroups()) {
+    const chip = document.createElement("span");
+    chip.className = "site-group-chip";
+    chip.title = "드래그하면 그룹 순서를 바꿀 수 있습니다.";
+    applyGroupTone(chip, group);
+    bindGroupChipDrag(chip, group);
+    chip.append(Object.assign(document.createElement("span"), { className: "site-group-swatch" }), group.name);
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.draggable = false;
+    edit.textContent = "수정";
+    edit.onclick = () => fillGroupForm(group);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.draggable = false;
+    remove.textContent = "삭제";
+    remove.onclick = async () => {
+      if (!await showConfirm("'" + group.name + "' 그룹을 삭제할까요?\n이 그룹의 사이트는 미지정으로 남습니다.", { title: "그룹 삭제", danger: true, ok: "삭제" })) return;
+      try {
+        await api("/api/site-groups/" + encodeURIComponent(group.id), { method: "DELETE" });
+        if (siteGroupFilter === group.id) siteGroupFilter = "all";
+        if ($("site-group").value === group.id) $("site-group").value = "";
+        if ($("site-group-edit-id").value === group.id) clearGroupForm();
+        await refresh();
+      } catch (error) {
+        await showAlert(error.message, { kind: "error", title: "삭제 실패" });
+      }
+    };
+    chip.append(edit, remove);
+    host.append(chip);
+  }
+}
+
+function fillGroupForm(group) {
+  $("site-group-edit-id").value = group.id;
+  $("site-group-input").value = group.name;
+  $("site-group-add").textContent = "수정 저장";
+  $("site-group-cancel").classList.remove("hidden");
+  $("site-group-input").focus();
+  $("site-group-input").select();
+}
+
+function clearGroupForm() {
+  $("site-group-edit-id").value = "";
+  $("site-group-input").value = "";
+  $("site-group-add").textContent = "그룹 추가";
+  $("site-group-cancel").classList.add("hidden");
+}
+
+function renderSiteGroupSelect() {
+  const select = $("site-group");
+  if (!select) return;
+  const current = select.value;
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "그룹 없음";
+  select.append(empty);
+  for (const group of siteGroups()) {
+    const option = document.createElement("option");
+    option.value = group.id;
+    option.textContent = group.name;
+    select.append(option);
+  }
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function renderSiteGroupFilters() {
+  const host = $("site-group-filters");
+  if (!host) return;
+  const groups = siteGroups();
+  const items = state.sites || [];
+  const counts = { all: items.length, none: items.filter((item) => !item.group_id).length };
+  for (const group of groups) {
+    counts[group.id] = items.filter((item) => item.group_id === group.id).length;
+  }
+  if (siteGroupFilter !== "all" && siteGroupFilter !== "none" && !groups.some((item) => item.id === siteGroupFilter)) {
+    siteGroupFilter = "all";
+  }
+  const chips = [{ id: "all", label: "전체" }];
+  for (const group of groups) chips.push({ id: group.id, label: group.name, group });
+  if (counts.none || siteGroupFilter === "none") chips.push({ id: "none", label: "미지정", group: null });
+  host.replaceChildren();
+  for (const chip of chips) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "gap-filter" + (chip.group !== undefined ? " group-tone" : "") + (siteGroupFilter === chip.id ? " on" : "");
+    if (chip.group !== undefined) applyGroupTone(button, chip.group);
+    button.append(chip.label);
+    const count = document.createElement("strong");
+    count.textContent = String(counts[chip.id] || 0);
+    button.append(count);
+    button.onclick = () => {
+      siteGroupFilter = chip.id;
+      renderSites();
+    };
+    host.append(button);
+  }
+}
+
+function fillSiteForm(item) {
+  renderSiteGroupSelect();
+  $("site-edit-id").value = item.id;
+  $("site-name").value = item.name;
+  $("site-url").value = item.url;
+  $("site-group").value = item.group_id || "";
+  $("site-save").textContent = "수정 저장";
+  $("site-cancel").classList.remove("hidden");
+  $("site-name").focus();
+}
+
+function clearSiteForm() {
+  $("site-edit-id").value = "";
+  $("site-name").value = "";
+  $("site-url").value = "";
+  $("site-save").textContent = "저장";
+  $("site-cancel").classList.add("hidden");
+  const filter = siteGroupFilter;
+  $("site-group").value = (filter && filter !== "all" && filter !== "none") ? filter : "";
+}
+
+$("site-cancel").onclick = () => clearSiteForm();
+$("site-group-cancel").onclick = () => clearGroupForm();
+$("site-group-add").onclick = async () => {
+  const name = $("site-group-input").value;
+  const editId = $("site-group-edit-id").value;
+  const payload = { name };
+  if (editId) payload.id = editId;
+  try {
+    await api("/api/site-groups", { method: "POST", body: payload });
+    clearGroupForm();
+    await refresh();
+    setStatus(editId ? "그룹명을 수정했습니다." : "그룹을 추가했습니다.");
+  } catch (error) {
+    await showAlert(error.message, { kind: "error", title: editId ? "그룹 수정 실패" : "그룹 추가 실패" });
+  }
+};
+$("site-group-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); $("site-group-add").click(); }
+});
+$("site-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const payload = {
+    name: $("site-name").value,
+    url: $("site-url").value,
+    group_id: $("site-group").value,
+  };
+  const editId = $("site-edit-id").value;
+  if (editId) payload.id = editId;
+  try {
+    await api("/api/sites", { method: "POST", body: payload });
+    clearSiteForm();
+    await refresh();
+    setStatus("사이트를 저장했습니다.");
+  } catch (error) {
+    await showAlert(error.message, { kind: "error", title: "저장 실패" });
+  }
+};
+
+document.querySelectorAll("[data-view]").forEach((button) => {
+  button.onclick = () => showView(button.dataset.view);
+});
+window.addEventListener("hashchange", () => showView(viewFromHash(), false));
+showView(viewFromHash(), false);
 refresh().catch((error) => setStatus(error.message));
 setInterval(() => { refresh(false).catch(() => {}); }, 2000);
 </script>

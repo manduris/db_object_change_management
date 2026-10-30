@@ -3,6 +3,7 @@ import unittest
 from app.sample_script import SAMPLE_SCRIPT
 from app.script_splitter import (
     find_risks,
+    plsql_compile_target,
     split_oracle_script,
     statement_label,
     summarize_statements,
@@ -73,6 +74,25 @@ class ScriptSplitterTests(unittest.TestCase):
         self.assertNotIn("INSERT", parts[0].sql)
         self.assertEqual(parts[1].mode, "sql")
         self.assertTrue(parts[1].sql.upper().startswith("INSERT"))
+
+    def test_quoted_schema_procedure_is_one_plsql_statement(self):
+        script = """CREATE OR REPLACE PROCEDURE OPENPOP."SP_FOO"
+(
+    P_ID NUMBER
+)
+IS
+BEGIN
+  INSERT INTO T VALUES (P_ID);
+  COMMIT;
+END;
+"""
+        parts = split_oracle_script(script)
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0].mode, "plsql")
+        self.assertEqual(
+            plsql_compile_target(parts[0].sql),
+            ("PROCEDURE", "SP_FOO", "OPENPOP"),
+        )
 
     def test_editionable_procedure_and_eof_without_slash(self):
         script = """CREATE OR REPLACE EDITIONABLE PROCEDURE p IS

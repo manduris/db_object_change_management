@@ -45,6 +45,15 @@ _ALTER_RE = re.compile(
     r"(?is)^ALTER\s+(TABLE|INDEX|PROCEDURE|FUNCTION|PACKAGE|TRIGGER|SEQUENCE|VIEW)\b"
 )
 
+_COMPILE_TARGET_RE = re.compile(
+    r"(?is)^(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:FORCE\s+|NOFORCE\s+)?"
+    r"(?:(?:EDITIONABLE|NONEDITIONABLE)\s+)?(?:AND\s+(?:RESOLVE|COMPILE)\s+)?|"
+    r"ALTER\s+)"
+    r"(?P<kind>PACKAGE\s+BODY|TYPE\s+BODY|PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE)\s+"
+    r'(?:(?P<schema>"[^"]+"|[A-Za-z][\w$#]*)\s*\.\s*)?'
+    r'(?P<name>"[^"]+"|[A-Za-z][\w$#]*)'
+)
+
 _SQLPLUS_RE = re.compile(
     r"(?i)^\s*(?:"
     r"SET|PROMPT|PRO|SPOOL|WHENEVER|REM|REMARK|COLUMN|COL|TTITLE|BTITLE|"
@@ -206,6 +215,29 @@ def is_ddl(sql: str) -> bool:
     return head.startswith(
         ("CREATE", "ALTER", "DROP", "TRUNCATE", "COMMENT", "GRANT", "REVOKE", "RENAME")
     )
+
+
+def plsql_compile_target(sql: str) -> tuple[str, str, str] | None:
+    """Return (ALL_ERRORS type, object name, schema) for compilable PL/SQL."""
+    head = strip_leading_comments(sql).strip()
+    matched = _COMPILE_TARGET_RE.match(head)
+    if not matched:
+        return None
+    kind = re.sub(r"\s+", " ", matched.group("kind")).upper()
+    if kind == "PACKAGE" and re.search(r"(?is)\bCOMPILE\s+BODY\b", head):
+        kind = "PACKAGE BODY"
+    schema = _ident_name(matched.group("schema")) if matched.group("schema") else ""
+    name = _ident_name(matched.group("name"))
+    if not name:
+        return None
+    return kind, name, schema
+
+
+def _ident_name(raw: str | None) -> str:
+    name = (raw or "").strip()
+    if name.startswith('"') and name.endswith('"') and len(name) >= 2:
+        return name[1:-1].replace('""', '"')
+    return name.upper()
 
 
 def find_risks(statements: list[ScriptStatement]) -> list[str]:

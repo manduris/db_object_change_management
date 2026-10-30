@@ -18,6 +18,7 @@ class ConnectionProfile:
     current_schema: str = ""
     dsn: str = ""
     password_error: bool = False
+    record_history: bool = False
 
     def target_text(self) -> str:
         user = self.username or "-"
@@ -41,6 +42,7 @@ class ConnectionProfile:
             current_schema=self.current_schema,
             dsn=self.dsn,
             password_error=self.password_error,
+            record_history=self.record_history,
         )
 
     def __repr__(self) -> str:

@@ -1,7 +1,13 @@
 .venv/
+.tmp-erwin/
+instantclient/
+instantclient*/
+instantclient-*.zip
 .tmp-web/
+.tmp-verify*/
 __pycache__/
 *.pyc
 .pytest_cache/
 *.tmp
 connections.broken*.json
+mail.broken*.json

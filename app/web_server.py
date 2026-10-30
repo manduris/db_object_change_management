@@ -9,9 +9,32 @@ import threading
 import uuid
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from app.change_history import HistoryPaths, append_change_history, default_history_paths
 from app.connection_store import ConnectionStore
+from app.db_catalog import fetch_db_tables
+from app.erwin_model import DEFAULT_ERWIN_MODEL, ErwinModel, apply_erwin_change, load_erwin_model, save_model_json
+from app.gap_filter import (
+    default_gap_filter,
+    filter_from_payload,
+    parse_gap_filter,
+    read_gap_state,
+    write_gap_state,
+)
+from app.file_dialog import browse_erwin_path
+from app.gap_analysis import (
+    GapItem,
+    apply_item_to_model,
+    build_apply_ddl,
+    compare_model_to_db,
+    db_apply_sql,
+    model_apply_op,
+    summarize_gaps,
+)
+from app.mail_inbox import MailInbox
+from app.mail_store import MailStore
 from app.models import ConnectionProfile, connection_fingerprint
 from app.oracle_runner import (
     OracleSession,
@@ -28,17 +51,26 @@ from app.script_splitter import (
     statement_label,
     summarize_statements,
 )
+from app.site_store import Site, SiteGroup, SiteStore
 
 _SCHEMA_RE = re.compile(r"[A-Za-z][A-Za-z0-9_$#]{0,127}")
-_PAGE = (
-    __import__("pathlib").Path(__file__).resolve().parent / "web" / "index.html"
-)
-_MAX_BODY = 5_000_000
+_PAGE = Path(__file__).resolve().parent / "web" / "index.html"
+_FAVICON = Path(__file__).resolve().parent / "web" / "favicon.svg"
+_MAX_BODY = 8_000_000
 
 
 class WebApp:
-    def __init__(self, store: ConnectionStore | None = None) -> None:
+    def __init__(
+        self,
+        store: ConnectionStore | None = None,
+        history_paths: HistoryPaths | None = None,
+        mail_inbox: MailInbox | None = None,
+        site_store: SiteStore | None = None,
+    ) -> None:
         self.store = store or ConnectionStore()
+        self.history_paths = history_paths or default_history_paths()
+        self.mail = mail_inbox or MailInbox(MailStore(self.store.path.with_name("mail.json")))
+        self.sites = site_store or SiteStore(self.store.path.with_name("sites.json"))
         self.sessions: dict[str, OracleSession] = {}
         self.pending: set[str] = set()
         self.connect_gen: dict[str, int] = {}
@@ -52,7 +84,14 @@ class WebApp:
         self._run_lock = threading.Lock()
         self.cancel_event = threading.Event()
         self.running = False
+        self.gap_model: ErwinModel | None = None
+        self.gap_path: str = ""
+        self.gap_connection_id: str | None = None
+        self.gap_items: list[GapItem] = []
+        self.gap_db_tables = []
+        self.gap_filter = default_gap_filter()
         self.reload_profiles()
+        self._restore_gap_state()
 
     def reload_profiles(self) -> None:
         data = self.store.load()
@@ -70,6 +109,8 @@ class WebApp:
                 self.active_id = None
             known = {item.id for item in self.profiles}
             self.selected_ids = {item for item in self.selected_ids if item in known}
+            if self.gap_connection_id and self.gap_connection_id not in known:
+                self.gap_connection_id = None
 
     def autoconnect(self) -> None:
         for profile in list(self.profiles):
@@ -150,6 +191,10 @@ class WebApp:
             "selected_ids": [item.id for item in profiles if item.id in selected_ids],
             "running": running,
             "warning": warning,
+            "mail": self.mail.public_state(),
+            "gap": self._gap_public(),
+            "sites": [item.public() for item in self.sites.list()],
+            "site_groups": [item.public() for item in self.sites.groups()],
         }
 
     def select_many(self, profile_ids: list[str]) -> None:
@@ -213,6 +258,7 @@ class WebApp:
         if existing is not None and isinstance(raw_id, str) and raw_id and raw_id != existing.id:
             raise ValueError("스크립트 저장 데이터베이스는 하나만 등록할 수 있습니다.")
         profile = _profile_from_payload(payload, existing, [])
+        profile.record_history = False
         if profile.id in self.running_ids:
             raise ValueError("스크립트 저장 데이터베이스에 작업 중입니다. 끝난 뒤에 저장하세요.")
         previous = connection_fingerprint(existing) if existing else None
@@ -281,6 +327,8 @@ class WebApp:
         script = payload.get("script")
         if not isinstance(script, str) or not script.strip():
             raise ValueError("실행할 스크립트를 입력하세요.")
+        reason = _clean(payload.get("reason"))
+        save_history = bool(payload.get("save_history"))
         targets = self._connected_targets(self._target_ids(payload))
         statements = split_oracle_script(script)
         if not any(item.mode != "skip" for item in statements):
@@ -289,6 +337,7 @@ class WebApp:
         if risks and not payload.get("confirm_risks"):
             return {
                 "need_confirm": True,
+                "reason": reason,
                 "risks": risks,
                 "summary": summarize_statements(statements),
             }
@@ -357,6 +406,8 @@ class WebApp:
             self._run_lock.release()
 
         logs = []
+        if reason:
+            logs.append({"tag": "info", "message": f"변경 사유: {reason}"})
         results = []
         stats = {"ok": 0, "fail": 0, "skip": 0, "cancelled": False, "targets": len(targets), "elapsed_ms": 0}
         for item in buckets:
@@ -373,13 +424,38 @@ class WebApp:
             stats["elapsed_ms"] = max(int(stats["elapsed_ms"]), int(piece.get("elapsed_ms") or 0))
             if piece.get("reconnect"):
                 self.start_connect(item["id"])
+        history = self._record_history(statements, reason, buckets) if save_history else []
+        logs.extend({"tag": tag, "message": message} for tag, message in history)
         return {
             "need_confirm": False,
+            "reason": reason,
             "summary": summarize_statements(statements),
             "logs": logs,
             "results": results,
             "stats": stats,
         }
+
+    def _record_history(self, statements, reason: str, buckets: list[dict | None]) -> list[tuple[str, str]]:
+        history_id = next((item.id for item in self.profiles if item.record_history), "")
+        if not history_id:
+            return [("warn", "Master 변경이력 기본 DB가 지정되지 않아 기록하지 않았습니다.")]
+        bucket = next((item for item in buckets if item and item.get("id") == history_id), None)
+        if bucket is None:
+            return [("warn", "Master 변경이력 기본 DB가 실행 대상이 아니라 기록하지 않았습니다.")]
+        piece = bucket.get("stats") or {}
+        if piece.get("cancelled") or not piece.get("ok") or piece.get("fail"):
+            return []
+        try:
+            written = append_change_history(
+                statements,
+                reason,
+                paths=self.history_paths,
+            )
+        except Exception as exc:
+            return [("warn", "변경이력 파일에 기록하지 못했습니다. " + format_db_error(exc))]
+        notes = [("ok", message) for message in written.messages]
+        notes.extend(("warn", message) for message in written.errors)
+        return notes
 
     def cancel(self) -> None:
         self.cancel_event.set()
@@ -488,7 +564,272 @@ class WebApp:
         if session is not None:
             session.close()
 
+    def browse_model(self) -> dict:
+        current = self.gap_path or (self.gap_model.path if self.gap_model else self._saved_gap_path())
+        path = browse_erwin_path(current)
+        if not path:
+            return {"cancelled": True, **self._gap_public()}
+        self.gap_path = path
+        self._save_gap_path(path)
+        return {"cancelled": False, **self._gap_public(), "path": path}
+
+    def load_model(self, path: str) -> dict:
+        text = _clean(path)
+        if not text:
+            raise ValueError("모델 파일 경로를 입력하세요.")
+        model = load_erwin_model(text, self.gap_filter)
+        self.gap_model = model
+        self.gap_path = model.path
+        self.gap_items = []
+        self.gap_db_tables = []
+        self._save_gap_path(model.path)
+        return {"cancelled": False, **self._gap_public(), "tables": model.public()["tables"]}
+
+    def select_gap_connection(self, profile_id: str) -> None:
+        self._reject_script_store(profile_id)
+        profile = self._target_profile(profile_id)
+        if profile is None:
+            raise ValueError("연결을 찾을 수 없습니다.")
+        session = self.sessions.get(profile_id)
+        if session is None or not session.connected:
+            raise ValueError(f"{profile.name}: 아직 연결되지 않았습니다. 연결된 데이터베이스만 선택할 수 있습니다.")
+        with self._state_lock:
+            self.gap_connection_id = profile_id
+
+    def analyze_gap(self, payload: dict | None) -> dict:
+        if self.gap_model is None or not self.gap_model.tables:
+            raise ValueError("먼저 ERwin 모델 파일을 지정하고 읽어 주세요.")
+        profile_id = ""
+        if isinstance(payload, dict):
+            raw = payload.get("connection_id")
+            if isinstance(raw, str):
+                profile_id = raw.strip()
+        if not profile_id:
+            profile_id = self.gap_connection_id or ""
+        if not profile_id:
+            raise ValueError("갭 분석할 데이터베이스를 하나 선택하세요.")
+        self.select_gap_connection(profile_id)
+        profile = self._target_profile(profile_id)
+        session = self.sessions.get(profile_id)
+        if profile is None or session is None:
+            raise ValueError("연결을 찾을 수 없습니다.")
+        owner, tables = fetch_db_tables(session)
+        items = compare_model_to_db(self.gap_model, tables, self.gap_filter)
+        self.gap_items = items
+        self.gap_db_tables = tables
+        ddl = build_apply_ddl(items)
+        summary = summarize_gaps(items)
+        public_items = []
+        for index, item in enumerate(items):
+            row = item.public()
+            row["index"] = index
+            public_items.append(row)
+        return {
+            "ok": True,
+            "connection_id": profile_id,
+            "connection_name": profile.name,
+            "schema": owner,
+            "model": {
+                "name": self.gap_model.name,
+                "path": self.gap_model.path,
+                "table_count": len(self.gap_model.tables),
+                "column_count": sum(len(item.columns) for item in self.gap_model.tables),
+            },
+            "db_table_count": len(tables),
+            "summary": summary,
+            "items": public_items,
+            "ddl": ddl,
+        }
+
+    def apply_gap_db(self, payload: dict | None) -> dict:
+        item = self._gap_item(payload)
+        sql = db_apply_sql(item)
+        if not sql.strip():
+            raise ValueError("이 항목은 DB에 반영할 DDL이 없습니다.")
+        if self.gap_connection_id is None:
+            raise ValueError("갭 분석할 데이터베이스를 하나 선택하세요.")
+        request = payload if isinstance(payload, dict) else {}
+        result = self.execute(
+            {
+                "script": sql,
+                "reason": _clean(request.get("reason")),
+                "connection_ids": [self.gap_connection_id],
+                "commit": request.get("commit", True),
+                "stop_on_error": request.get("stop_on_error", True),
+                "confirm_risks": bool(request.get("confirm_risks")),
+                "save_history": bool(request.get("save_history")),
+            }
+        )
+        if result.get("need_confirm") or (result.get("stats") or {}).get("fail"):
+            return result
+        result["report"] = self.analyze_gap({"connection_id": self.gap_connection_id})
+        return result
+
+    def apply_gap_model(self, payload: dict | None) -> dict:
+        item = self._gap_item(payload)
+        model = self.gap_model
+        if model is None:
+            raise ValueError("먼저 ERwin 모델 파일을 지정하고 읽어 주세요.")
+        suffix = Path(model.path).suffix.lower()
+        if item.kind == "pk_diff" and suffix != ".json":
+            raise ValueError("PK 구성은 ERwin 키 그룹을 자동으로 바꾸지 않습니다.")
+        if suffix == ".json":
+            apply_item_to_model(model, item, self.gap_db_tables)
+            save_model_json(model)
+            self.gap_model = load_erwin_model(model.path, self.gap_filter)
+        else:
+            op = model_apply_op(item, model, self.gap_db_tables)
+            apply_erwin_change(model.path, op)
+            self.gap_model = load_erwin_model(model.path, self.gap_filter)
+        self.gap_path = self.gap_model.path
+        self._save_gap_path(self.gap_model.path)
+        report = self.analyze_gap({"connection_id": self.gap_connection_id}) if self.gap_connection_id else None
+        return {
+            "ok": True,
+            "message": "모델에 반영했습니다.",
+            "report": report,
+            **self._gap_public(),
+        }
+
+    def _gap_item(self, payload: dict | None) -> GapItem:
+        if not self.gap_items:
+            raise ValueError("먼저 갭 분석을 하세요.")
+        if not isinstance(payload, dict):
+            raise ValueError("반영할 항목을 선택하세요.")
+        index = payload.get("index")
+        try:
+            position = int(index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("반영할 항목을 선택하세요.") from exc
+        if position < 0 or position >= len(self.gap_items):
+            raise ValueError("선택한 항목을 찾을 수 없습니다. 갭 분석을 다시 하세요.")
+        item = self.gap_items[position]
+        kind = _clean(payload.get("kind"))
+        table = _clean(payload.get("table"))
+        column = _clean(payload.get("column"))
+        if kind and kind != item.kind:
+            raise ValueError("선택한 항목이 바뀌었습니다. 갭 분석을 다시 하세요.")
+        if table and table != item.table:
+            raise ValueError("선택한 항목이 바뀌었습니다. 갭 분석을 다시 하세요.")
+        if column and column != item.column:
+            raise ValueError("선택한 항목이 바뀌었습니다. 갭 분석을 다시 하세요.")
+        return item
+
+    def _gap_public(self) -> dict:
+        model = self.gap_model
+        loaded = model is not None and bool(model.tables)
+        return {
+            "path": (model.path if model else "") or self.gap_path,
+            "name": model.name if loaded and model else "",
+            "loaded": loaded,
+            "table_count": len(model.tables) if loaded and model else 0,
+            "column_count": sum(len(item.columns) for item in model.tables) if loaded and model else 0,
+            "connection_id": self.gap_connection_id,
+            "filter": self.gap_filter.public(),
+        }
+
+    def save_gap_filter(self, payload: dict | None) -> dict:
+        self.gap_filter = filter_from_payload(payload)
+        self._save_gap_state()
+        return {
+            "ok": True,
+            "message": "추출 제외 설정을 저장했습니다. 모델 읽기와 갭 분석을 다시 하면 적용됩니다.",
+            **self._gap_public(),
+        }
+
+    def reset_gap_filter(self) -> dict:
+        self.gap_filter = default_gap_filter()
+        self._save_gap_state()
+        return {
+            "ok": True,
+            "message": "기본 제외 대상으로 되돌렸습니다. 모델 읽기를 다시 하면 적용됩니다.",
+            **self._gap_public(),
+        }
+
+    def _gap_state_path(self) -> Path:
+        return self.store.path.with_name("gap.json")
+
+    def _saved_gap_path(self) -> str:
+        value = read_gap_state(self._gap_state_path()).get("model_path")
+        return value.strip() if isinstance(value, str) else ""
+
+    def _save_gap_path(self, model_path: str) -> None:
+        self._save_gap_state(model_path=model_path)
+
+    def _restore_gap_state(self) -> None:
+        raw = read_gap_state(self._gap_state_path())
+        self.gap_filter = parse_gap_filter(raw)
+        self.gap_path = str(DEFAULT_ERWIN_MODEL)
+
+    def _save_gap_state(self, **updates) -> None:
+        payload = {
+            "model_path": self.gap_path,
+            "subject_areas": list(self.gap_filter.subject_areas),
+            "table_patterns": [item.public() for item in self.gap_filter.table_patterns],
+            "exclude_pk_order": self.gap_filter.exclude_pk_order,
+        }
+        payload.update(updates)
+        try:
+            write_gap_state(self._gap_state_path(), payload)
+        except OSError:
+            pass
+
+    def save_site(self, payload: dict) -> Site:
+        site_id = payload.get("id")
+        if site_id is not None and not isinstance(site_id, str):
+            raise ValueError("사이트 정보가 올바르지 않습니다.")
+        name = payload.get("name")
+        url = payload.get("url")
+        if not isinstance(name, str):
+            raise ValueError("사이트명을 입력하세요.")
+        if not isinstance(url, str):
+            raise ValueError("사이트 URL을 입력하세요.")
+        group_id = payload.get("group_id")
+        if group_id is None:
+            group_id = ""
+        if not isinstance(group_id, str):
+            raise ValueError("그룹 정보가 올바르지 않습니다.")
+        return self.sites.upsert(
+            name,
+            url,
+            site_id.strip() if site_id else None,
+            group_id=group_id,
+        )
+
+    def save_site_group(self, payload: dict) -> dict:
+        name = payload.get("name")
+        if not isinstance(name, str):
+            raise ValueError("그룹명을 입력하세요.")
+        group_id = payload.get("id")
+        if group_id is not None and not isinstance(group_id, str):
+            raise ValueError("그룹 정보가 올바르지 않습니다.")
+        if isinstance(group_id, str) and group_id.strip():
+            return self.sites.rename_group(group_id.strip(), name).public()
+        return self.sites.add_group(name).public()
+
+    def delete_site(self, site_id: str) -> None:
+        self.sites.delete(site_id)
+
+    def delete_site_group(self, group_id: str) -> None:
+        self.sites.delete_group(group_id)
+
+    def reorder_sites(self, payload: dict) -> list[Site]:
+        ids = payload.get("ids")
+        if not isinstance(ids, list):
+            raise ValueError("사이트 순서가 올바르지 않습니다.")
+        moved_id = payload.get("moved_id")
+        if moved_id is not None and not isinstance(moved_id, str):
+            raise ValueError("사이트 정보가 올바르지 않습니다.")
+        return self.sites.reorder(ids, moved_id=moved_id, group_id=payload.get("group_id"))
+
+    def reorder_site_groups(self, payload: dict) -> list[SiteGroup]:
+        ids = payload.get("ids")
+        if not isinstance(ids, list):
+            raise ValueError("그룹 순서가 올바르지 않습니다.")
+        return self.sites.reorder_groups(ids)
+
     def close(self) -> None:
+        self.mail.stop()
         for session in list(self.sessions.values()):
             session.close()
 
@@ -513,6 +854,7 @@ def _public_card(
         "username": profile.username,
         "current_schema": profile.current_schema,
         "dsn": profile.dsn,
+        "record_history": bool(profile.record_history),
         "target": profile.target_text(),
         "active": selectable and profile.id == active_id,
         "selected": selectable and profile.id in selected_ids and status == "connected",
@@ -587,6 +929,7 @@ def _profile_from_payload(
         password=password,
         current_schema=schema,
         dsn=dsn,
+        record_history=bool(payload.get("record_history")),
     )
 
 
@@ -615,11 +958,17 @@ class AppHandler(BaseHTTPRequestHandler):
         if path in {"/", "/index.html"}:
             self._bytes(200, self.page, "text/html; charset=utf-8")
             return
+        if path in {"/favicon.ico", "/favicon.svg"}:
+            self._bytes(200, _FAVICON.read_bytes(), "image/svg+xml")
+            return
         if path == "/api/state":
             self._json(200, self.app.snapshot())
             return
         if path == "/api/sample":
             self._json(200, {"script": SAMPLE_SCRIPT})
+            return
+        if path == "/api/mail":
+            self._json(200, self.app.mail.snapshot())
             return
         self._json(404, {"error": "주소를 찾을 수 없습니다."})
 
@@ -684,6 +1033,71 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/script/rollback":
                 self._json(200, {"ok": True, "message": self.app.rollback(payload)})
                 return
+            if path == "/api/mail/settings":
+                self._json(200, self.app.mail.save_settings(payload))
+                return
+            if path == "/api/mail/test":
+                message = self.app.mail.test_settings(payload)
+                self._json(200, {"ok": True, "message": message})
+                return
+            if path == "/api/mail/refresh":
+                self._json(200, self.app.mail.refresh())
+                return
+            if path == "/api/mail/read":
+                uid = payload.get("uid")
+                if not isinstance(uid, str):
+                    raise ValueError("읽을 메일을 선택하세요.")
+                self._json(200, self.app.mail.mark_read(uid))
+                return
+            if path == "/api/gap/browse":
+                self._json(200, self.app.browse_model())
+                return
+            if path == "/api/gap/load":
+                path_value = payload.get("path")
+                if not isinstance(path_value, str):
+                    raise ValueError("모델 파일 경로를 입력하세요.")
+                self._json(200, self.app.load_model(path_value))
+                return
+            if path == "/api/gap/select":
+                profile_id = payload.get("connection_id")
+                if not isinstance(profile_id, str) or not profile_id.strip():
+                    raise ValueError("갭 분석할 데이터베이스를 하나 선택하세요.")
+                self.app.select_gap_connection(profile_id.strip())
+                self._json(200, {"ok": True, **self.app._gap_public()})
+                return
+            if path == "/api/gap/analyze":
+                self._json(200, self.app.analyze_gap(payload))
+                return
+            if path == "/api/gap/settings":
+                if payload.get("reset"):
+                    self._json(200, self.app.reset_gap_filter())
+                else:
+                    self._json(200, self.app.save_gap_filter(payload))
+                return
+            if path == "/api/gap/apply-db":
+                result = self.app.apply_gap_db(payload)
+                status = 409 if result.get("need_confirm") else 200
+                self._json(status, result)
+                return
+            if path == "/api/gap/apply-model":
+                self._json(200, self.app.apply_gap_model(payload))
+                return
+            if path == "/api/sites":
+                site = self.app.save_site(payload)
+                self._json(200, {"ok": True, **site.public()})
+                return
+            if path == "/api/sites/reorder":
+                items = self.app.reorder_sites(payload)
+                self._json(200, {"ok": True, "sites": [item.public() for item in items]})
+                return
+            if path == "/api/site-groups/reorder":
+                groups = self.app.reorder_site_groups(payload)
+                self._json(200, {"ok": True, "site_groups": [item.public() for item in groups]})
+                return
+            if path == "/api/site-groups":
+                group = self.app.save_site_group(payload)
+                self._json(200, {"ok": True, **group})
+                return
             self._json(404, {"error": "주소를 찾을 수 없습니다."})
         except ValueError as exc:
             self._json(400, {"error": str(exc)})
@@ -695,6 +1109,24 @@ class AppHandler(BaseHTTPRequestHandler):
         if path == "/api/script-store":
             try:
                 self.app.delete_script_store()
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, {"ok": True})
+            return
+        group_prefix = "/api/site-groups/"
+        if path.startswith(group_prefix) and path != group_prefix:
+            try:
+                self.app.delete_site_group(unquote(path[len(group_prefix) :]))
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, {"ok": True})
+            return
+        site_prefix = "/api/sites/"
+        if path.startswith(site_prefix) and path != site_prefix:
+            try:
+                self.app.delete_site(unquote(path[len(site_prefix) :]))
             except ValueError as exc:
                 self._json(400, {"error": str(exc)})
                 return
@@ -756,7 +1188,8 @@ def serve(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = Tru
     chosen_host, chosen_port = httpd.server_address[:2]
     url = f"http://{chosen_host}:{chosen_port}/"
     threading.Thread(target=app.autoconnect, daemon=True).start()
-    print(f"오라클 오브젝트 변경 관리: {url}")
+    app.mail.start()
+    print(f"오라클 변경 관리: {url}")
     print("이 창을 닫거나 Ctrl+C 를 누르면 서버가 멈춥니다.")
     if open_browser:
         webbrowser.open(url)

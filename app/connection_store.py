@@ -49,6 +49,10 @@ class ConnectionStore:
                     break
             else:
                 data.connections.append(profile)
+            if profile.record_history:
+                for existing in data.connections:
+                    if existing.id != profile.id and existing.record_history:
+                        existing.record_history = False
             self._write(data)
 
     def delete(self, profile_id: str) -> None:
@@ -165,6 +169,7 @@ def _profile_to_dict(profile: ConnectionProfile) -> dict:
         "password_protected": protect_text(profile.password),
         "current_schema": profile.current_schema,
         "dsn": profile.dsn,
+        "record_history": bool(profile.record_history),
     }
 
 
@@ -204,9 +209,10 @@ def _profile_from_dict(item: object) -> ConnectionProfile | None:
         username=_text(item.get("username")),
         password=password,
         current_schema=_text(item.get("current_schema")),
-        dsn=_text(item.get("dsn")),
-        password_error=password_error,
-    )
+            dsn=_text(item.get("dsn")),
+            password_error=password_error,
+            record_history=bool(item.get("record_history")),
+        )
 
 
 def _text(value: object) -> str:
